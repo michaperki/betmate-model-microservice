@@ -1,1 +1,1 @@
-from . import healthcheck
+from . import healthcheck, model_router
