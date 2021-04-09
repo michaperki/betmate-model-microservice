@@ -1,4 +1,3 @@
-import json
 import os
 from flask import Flask
 from src.services.format_response import formatSuccess
