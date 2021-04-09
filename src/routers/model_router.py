@@ -1,6 +1,6 @@
 
 from chess import Board
-from src.predictors.wdl_predictor import get_wdl_predictor
+from src.predictors.wdl_predictor import WDLResponse, get_wdl_predictor
 from flask import jsonify, request
 from src import app
 from src.services.format_response import formatSuccess, formatError
@@ -16,10 +16,10 @@ def wdl(model = get_wdl_predictor()):
     except ValueError as e:
         return formatError(400, str(e), "ValueError")
 
-    probabilities = model(board, white_time, black_time)
+    probabilities: WDLResponse = model(board, white_time, black_time)
 
-    return formatSuccess(probabilities)
+    return formatSuccess(probabilities.dict())
 
 @app.route('/models/move', methods=['GET'])
 def move():
-    return formatSuccess()
+    return formatError(500, "Endpoint not yet implemented", "NotImplementedError")
