@@ -19,11 +19,13 @@ def get_wdl_predictor(engine: SimpleEngine, time_limit=0.1):
 
     TIME_LIMIT = time_limit
 
-    with open(os.path.join(os.getcwd(), 'assets/black_win_fraction.npy'), 'rb') as f:
+    get_file = lambda f: os.path.join(os.path.dirname(__file__), os.pardir, os.pardir, f)
+
+    with open(get_file('assets/black_win_fraction.npy'), 'rb') as f:
         bwf = np.load(f)
-    with open(os.path.join(os.getcwd(), 'assets/white_win_fraction.npy'), 'rb') as f:
+    with open(get_file('assets/white_win_fraction.npy'), 'rb') as f:
         wwf = np.load(f)
-    with open(os.path.join(os.getcwd(), 'assets/draw_fraction.npy'), 'rb') as f:
+    with open(get_file('assets/draw_fraction.npy'), 'rb') as f:
         df = np.load(f)
 
     def predict(board: Board, white_time: int, black_time: int):
