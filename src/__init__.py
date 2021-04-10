@@ -6,7 +6,7 @@ from chess.engine import SimpleEngine
 
 app = Flask(__name__)
 
-engine = SimpleEngine.popen_uci(join(dirname(dirname(dirname(abspath(__file__)))), 'assets/stockfish'))
+engine = SimpleEngine.popen_uci(join(dirname(abspath(__file__)), 'assets/stockfish'))
 engine.configure({"Threads": cpu_count() - 1})
 engine.configure({"Hash": 1024})
 
