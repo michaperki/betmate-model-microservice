@@ -1,13 +1,13 @@
 
 from chess import Board
 from src.predictors.wdl_predictor import WDLResponse, get_wdl_predictor
-from flask import jsonify, request
+from flask import request
 from src import app
 from src.services.format_response import formatSuccess, formatError
 
 
 @app.route('/models/wdl', methods=['GET'])
-def wdl(model = get_wdl_predictor()):
+def wdl(model=get_wdl_predictor()):
 
     try:
         board = Board(request.args.get('fen'))
@@ -19,6 +19,7 @@ def wdl(model = get_wdl_predictor()):
     probabilities: WDLResponse = model(board, white_time, black_time)
 
     return formatSuccess(probabilities.dict())
+
 
 @app.route('/models/move', methods=['GET'])
 def move():

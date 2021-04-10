@@ -4,11 +4,11 @@ from src.services.format_response import formatSuccess
 
 app = Flask(__name__)
 
-from src import *
-from src.routers import *
+import src.routers  # noqa: E402
 
 if __name__ == '__main__':
     app.run(port=int(os.environ.get('PORT', 5000)))
+
 
 @app.route('/')
 def init():

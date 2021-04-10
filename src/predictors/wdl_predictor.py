@@ -12,7 +12,7 @@ class WDLResponse(BaseModel):
     black_win: float
 
 
-def get_wdl_predictor(time_limit: float = 0.1):
+def get_wdl_predictor(time_limit=0.1):
 
     TIME_LIMIT = time_limit
 
@@ -29,19 +29,18 @@ def get_wdl_predictor(time_limit: float = 0.1):
 
     def predict(board: Board, white_time: int, black_time: int):
 
-
         win_bin: int = _get_win_bin(board)
 
         return WDLResponse(
             white_win=wwf[white_time, black_time, win_bin],
             draw=df[white_time, black_time, win_bin],
-            black_win=bwf[white_time, black_time, win_bin],
+            black_win=bwf[white_time, black_time, win_bin]
         )
 
     def _get_win_bin(board: Board):
         info = engine.analyse(board, chess.engine.Limit(time=TIME_LIMIT))
         eval = info['score'].white().score(mate_score=1000)
-        pwin = 1/(1+math.pow(10,-eval/400))
+        pwin = 1 / (1 + math.pow(10, -eval / 400))
 
         if pwin < 0.10:
             indexOnWinBin = 0
@@ -54,9 +53,6 @@ def get_wdl_predictor(time_limit: float = 0.1):
         elif pwin >= 0.00:
             indexOnWinBin = 4
 
-
         return indexOnWinBin
 
     return predict
-
-
