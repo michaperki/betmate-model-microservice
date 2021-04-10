@@ -26,7 +26,6 @@ def get_wdl_predictor(engine: SimpleEngine, time_limit=0.1):
     with open(os.path.join(os.getcwd(), 'assets/draw_fraction.npy'), 'rb') as f:
         df = np.load(f)
 
-
     def predict(board: Board, white_time: int, black_time: int):
 
         win_bin: int = _get_win_bin(board)

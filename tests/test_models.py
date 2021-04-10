@@ -3,8 +3,8 @@ import chess
 import random
 import json
 from urllib.parse import quote
-
 from flask.wrappers import Response
+
 
 def generate_chess_game():
     random.seed()
@@ -21,23 +21,25 @@ def generate_chess_game():
         else:
             black_time -= random.randint(1, 10)
             black_time = max(black_time, 10)
-        
+
         game.push(move)
         move_counter -= 1
         yield game.fen(), white_time, black_time
 
+
 def get_bad_fen_list():
     return [
-       'rnbqkbnr/pppppp/4p3/3p4/3PP3/8/PPP2PPP/RNBQKBNR w KQkq - 0 3',
-       'rnbqkbnr/ppp2ppp/4p3/3p4/3PP3/PPP2PPP/RNBQKBNR w KQkq - 0 3',
-       'rnbqkbnr/ppp2ppp/4p3/3p4/3PP3/8/PPP2PPP/RNBQKBNR KQkq - 0 3',
-       'rnbqkbnr/ppp2ppp/4p3/3p4/3PP3/8/PPP2PPP/RNBQKBNR w KQkq 0 3',
-       'rnbqknr/ppp2ppp/4p3/3p4/3PP3/8/PPP2PPP/RNBQKBNR w KQkq - 0 3',
-       'rnbqkbnr/ppp2ppp/4p3/3p4/PPP2PPP/RNBQKBNR w KQkq - 0 3',
-       'rnbqkbnr/ppp2ppp/4p3/3p4/3PP3/8//PPP2PPP/RNBQKBNR w KQkq - 0 3',
-       'rnbqkbnr/ppp2ppp/4p3/3p4/3PP3/8/PPP2PPX/RNBQKBNR w KQkq - 0 3',
-       'rnbqkbnr/ppp2pjb/4p3/3p4/3PP3/8/PPP2PPP/RNBQKBNR w KQkq - 0 3' 
+        'rnbqkbnr/pppppp/4p3/3p4/3PP3/8/PPP2PPP/RNBQKBNR w KQkq - 0 3',
+        'rnbqkbnr/ppp2ppp/4p3/3p4/3PP3/PPP2PPP/RNBQKBNR w KQkq - 0 3',
+        'rnbqkbnr/ppp2ppp/4p3/3p4/3PP3/8/PPP2PPP/RNBQKBNR KQkq - 0 3',
+        'rnbqkbnr/ppp2ppp/4p3/3p4/3PP3/8/PPP2PPP/RNBQKBNR w KQkq 0 3',
+        'rnbqknr/ppp2ppp/4p3/3p4/3PP3/8/PPP2PPP/RNBQKBNR w KQkq - 0 3',
+        'rnbqkbnr/ppp2ppp/4p3/3p4/PPP2PPP/RNBQKBNR w KQkq - 0 3',
+        'rnbqkbnr/ppp2ppp/4p3/3p4/3PP3/8//PPP2PPP/RNBQKBNR w KQkq - 0 3',
+        'rnbqkbnr/ppp2ppp/4p3/3p4/3PP3/8/PPP2PPX/RNBQKBNR w KQkq - 0 3',
+        'rnbqkbnr/ppp2pjb/4p3/3p4/3PP3/8/PPP2PPP/RNBQKBNR w KQkq - 0 3',
     ]
+
 
 def get_bad_time_list():
     return [
@@ -50,8 +52,10 @@ def get_bad_time_list():
         (180, False)
     ]
 
+
 def create_wdl_query(fen, white_time, black_time):
     return f'/models/wdl?fen={quote(fen)}&white_time={white_time}&black_time={black_time}'
+
 
 def test_wdl_good(client: FlaskClient):
     for fen, white_time, black_time in generate_chess_game():
@@ -64,6 +68,7 @@ def test_wdl_good(client: FlaskClient):
         assert data['draw'] <= 1
         assert data['white_win'] >= 0
         assert data['white_win'] <= 1
+
 
 def test_wdl_bad_fen(client: FlaskClient):
     white_time, black_time = 180, 180

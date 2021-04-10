@@ -7,6 +7,7 @@ from src import app, engine
 def client():
     return app.test_client()
 
+
 @pytest.fixture(scope='session', autouse=True)
 def cleanup(request):
     def close_engine():
