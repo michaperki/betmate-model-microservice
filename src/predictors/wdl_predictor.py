@@ -1,5 +1,5 @@
 import numpy as np
-import os
+from os.path import join, dirname, abspath
 import math
 import chess.engine
 from chess import Board
@@ -19,7 +19,7 @@ def get_wdl_predictor(engine: SimpleEngine, time_limit=0.1):
 
     TIME_LIMIT = time_limit
 
-    get_file = lambda f: os.path.join(os.path.dirname(__file__), os.pardir, os.pardir, f)
+    get_file = lambda f: join(dirname(dirname(dirname(abspath(__file__)))), f)
 
     with open(get_file('assets/black_win_fraction.npy'), 'rb') as f:
         bwf = np.load(f)
