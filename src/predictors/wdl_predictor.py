@@ -1,3 +1,4 @@
+from src.services.file_system_helpers import get_asset_path
 import numpy as np
 from os.path import join, dirname, abspath
 import math
@@ -19,13 +20,11 @@ def get_wdl_predictor(engine: SimpleEngine, time_limit=0.1):
 
     TIME_LIMIT = time_limit
 
-    get_file = lambda f: join(dirname(dirname(abspath(__file__))), f)
-
-    with open(get_file('assets/black_win_fraction.npy'), 'rb') as f:
+    with open(get_asset_path('black_win_fraction.npy'), 'rb') as f:
         bwf = np.load(f)
-    with open(get_file('assets/white_win_fraction.npy'), 'rb') as f:
+    with open(get_asset_path('white_win_fraction.npy'), 'rb') as f:
         wwf = np.load(f)
-    with open(get_file('assets/draw_fraction.npy'), 'rb') as f:
+    with open(get_asset_path('draw_fraction.npy'), 'rb') as f:
         df = np.load(f)
 
     def predict(board: Board, white_time: int, black_time: int):
