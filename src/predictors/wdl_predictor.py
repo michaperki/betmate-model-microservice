@@ -3,6 +3,7 @@ import os
 import math
 import chess.engine
 from chess import Board
+from chess.engine import SimpleEngine
 from pydantic import BaseModel
 
 
@@ -12,7 +13,9 @@ class WDLResponse(BaseModel):
     black_win: float
 
 
-def get_wdl_predictor(time_limit=0.1):
+def get_wdl_predictor(engine: SimpleEngine, time_limit=0.1):
+
+    print('initializing wdl model')
 
     TIME_LIMIT = time_limit
 
@@ -23,13 +26,13 @@ def get_wdl_predictor(time_limit=0.1):
     with open(os.path.join(os.getcwd(), 'assets/draw_fraction.npy'), 'rb') as f:
         df = np.load(f)
 
-    engine = chess.engine.SimpleEngine.popen_uci(os.path.join(os.getcwd(), 'assets/stockfish'))
-    engine.configure({"Threads": os.cpu_count() - 1})
-    engine.configure({"Hash": 1024})
 
     def predict(board: Board, white_time: int, black_time: int):
 
         win_bin: int = _get_win_bin(board)
+
+        white_time = min(180, max(1, white_time))
+        black_time = min(180, max(1, black_time))
 
         return WDLResponse(
             white_win=wwf[white_time, black_time, win_bin],
@@ -38,6 +41,7 @@ def get_wdl_predictor(time_limit=0.1):
         )
 
     def _get_win_bin(board: Board):
+
         info = engine.analyse(board, chess.engine.Limit(time=TIME_LIMIT))
         eval = info['score'].white().score(mate_score=1000)
         pwin = 1 / (1 + math.pow(10, -eval / 400))
