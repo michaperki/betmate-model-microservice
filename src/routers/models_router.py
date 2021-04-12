@@ -14,10 +14,8 @@ def wdl(model=get_wdl_predictor(engine)):
         board = Board(request.args.get('fen'))
         white_time: int = int(request.args.get('white_time'))
         black_time: int = int(request.args.get('black_time'))
-    except ValueError as e:
-        return formatError(400, str(e), "ValueError")
-    except TypeError as e:
-        return formatError(400, str(e), "TypeError")
+    except Exception as e:
+        return formatError(400, str(e), "Argument error")
 
     probabilities: WDLResponse = model(board, white_time, black_time)
 
