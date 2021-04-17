@@ -7,8 +7,8 @@ from chess.engine import SimpleEngine
 app = Flask(__name__)
 
 engine = SimpleEngine.popen_uci(get_stockfish_executable_path())
-engine.configure({"Threads": cpu_count() - 1})
-engine.configure({"Hash": 1024})
+# engine.configure({"Threads": cpu_count() - 1})
+# engine.configure({"Hash": 1024})
 
 import src.routers  # noqa: E402
 
