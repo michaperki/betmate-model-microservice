@@ -1,6 +1,5 @@
 from src.services.file_system_helpers import get_asset_path
 import numpy as np
-from os.path import join, dirname, abspath
 import math
 import chess.engine
 from chess import Board
