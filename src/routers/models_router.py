@@ -28,6 +28,7 @@ def wdl(model=get_wdl_predictor(engine)):
 def move():
     return formatError(500, "Endpoint not yet implemented", "NotImplementedError")
 
+
 @app.route('/models/top_moves', methods=['GET'])
 def top_moves(model=get_top_move_predictor(engine)):
     try:
@@ -39,7 +40,3 @@ def top_moves(model=get_top_move_predictor(engine)):
     top_moves: List[str] = model(board, n)
 
     return formatSuccess(top_moves)
-
-    
-
-    

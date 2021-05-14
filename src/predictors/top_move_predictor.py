@@ -1,6 +1,7 @@
-from typing import List
+from typing import List, Tuple, Union
 from chess.engine import Limit, SimpleEngine
 from chess import Board, Move
+
 
 def get_top_move_predictor(engine: SimpleEngine, depth=10):
 
@@ -8,7 +9,8 @@ def get_top_move_predictor(engine: SimpleEngine, depth=10):
 
     DEPTH = depth
 
-    desc = lambda x: -x[1] if x[1] else 0
+    def desc(x: Tuple[str, Union[int, None]]):
+        return -x[1] if x[1] else 0
 
     def _get_move_rating(board: Board, move: Move):
         analysis = engine.analyse(board, Limit(depth=DEPTH), root_moves=[move])
@@ -16,8 +18,8 @@ def get_top_move_predictor(engine: SimpleEngine, depth=10):
 
     def predict(board: Board, n: int) -> List[str]:
         move_scores = [(board.san(move), _get_move_rating(board, move))
-                        for move in board.legal_moves]
-        
+                       for move in board.legal_moves]
+
         return [move for move, _ in sorted(move_scores, key=desc)[:n]]
 
     return predict
