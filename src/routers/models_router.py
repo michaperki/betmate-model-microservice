@@ -37,6 +37,9 @@ def top_moves(model=get_top_move_predictor(engine)):
     except Exception as e:
         return formatError(400, str(e), "Argument error")
 
+    if n <= 0:
+        return formatError(400, "'n' must be a positive integer", "Argument error")
+
     top_moves: List[str] = model(board, n)
 
     return formatSuccess(top_moves)
