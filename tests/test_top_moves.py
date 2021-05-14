@@ -1,10 +1,10 @@
 from flask.testing import FlaskClient
-import chess
 import random
 import json
 from urllib.parse import quote
 from flask.wrappers import Response
 from tests.helpers import generate_chess_game, get_bad_fen_list
+
 
 def get_bad_n_list():
     return ['a', 'chess', None, [6], True, False, -10, 0]

@@ -1,7 +1,5 @@
 from tests.helpers import generate_chess_game, get_bad_fen_list
 from flask.testing import FlaskClient
-import chess
-import random
 import json
 from urllib.parse import quote
 from flask.wrappers import Response

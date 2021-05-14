@@ -1,6 +1,7 @@
 import random
 import chess
 
+
 def generate_chess_game():
     random.seed()
     game = chess.Board()
