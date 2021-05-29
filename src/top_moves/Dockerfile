@@ -4,4 +4,4 @@ COPY . .
 
 RUN pip install -r requirements.txt
 
-CMD [ "moves.moves_route" ]
+CMD [ "top_moves.top_moves_route" ]

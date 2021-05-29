@@ -23,7 +23,7 @@ def model(board, n):
     return [move for move, _ in sorted(move_scores, key=lambda x: -x[1])[:n]]
 
 
-def moves_route(event, context):
+def top_moves_route(event, context):
     data = event['queryStringParameters']
     try:
         board = Board(data['fen'])
