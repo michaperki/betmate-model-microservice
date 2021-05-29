@@ -1,8 +1,7 @@
-from tests.helpers import generate_chess_game, get_bad_fen_list
-from flask.testing import FlaskClient
 import json
-from urllib.parse import quote
-from flask.wrappers import Response
+
+from src import wdl_route
+from tests.helpers import generate_chess_game, get_bad_fen_list
 
 
 def get_bad_time_list():
@@ -12,20 +11,24 @@ def get_bad_time_list():
         (180, None),
         (None, 180),
         ([180], 180),
-        (True, 180),
-        (180, False)
     ]
 
 
 def create_wdl_query(fen, white_time, black_time):
-    return f'/models/wdl?fen={quote(fen)}&white_time={white_time}&black_time={black_time}'
+    return {
+        'queryStringParameters': {
+            'fen': fen,
+            'white_time': white_time,
+            'black_time': black_time
+        }
+    }
 
 
-def test_wdl_good(client: FlaskClient):
+def test_wdl_good():
     for fen, white_time, black_time in generate_chess_game():
-        response: Response = client.get(create_wdl_query(fen, white_time, black_time))
-        assert response.status_code == 200
-        data = json.loads(response.data)['data']
+        response = wdl_route(create_wdl_query(fen, white_time, black_time))
+        assert response['statusCode'] == 200
+        data = json.loads(response['body'])['data']
         assert data['black_win'] >= 0
         assert data['black_win'] <= 1
         assert data['draw'] >= 0
@@ -34,21 +37,17 @@ def test_wdl_good(client: FlaskClient):
         assert data['white_win'] <= 1
 
 
-def test_wdl_bad_fen(client: FlaskClient):
+def test_wdl_bad_fen():
     white_time, black_time = 180, 180
 
     for bad_fen in get_bad_fen_list():
-        response: Response = client.get(create_wdl_query(bad_fen, white_time, black_time))
-        assert response.status_code == 400
+        response = wdl_route(create_wdl_query(bad_fen, white_time, black_time))
+        assert response['statusCode'] == 400
 
 
-def test_wdl_bad_time(client: FlaskClient):
+def test_wdl_bad_time():
     fen = 'rnbqkbnr/ppp2ppp/4p3/3p4/3PP3/8/PPP2PPP/RNBQKBNR w KQkq - 0 3'
     for white_time, black_time in get_bad_time_list():
-        response: Response = client.get(create_wdl_query(fen, white_time, black_time))
-        assert response.status_code == 400
+        response = wdl_route(create_wdl_query(fen, white_time, black_time))
+        assert response['statusCode'] == 400
 
-
-def test_move_unimplemented(client: FlaskClient):
-    response: Response = client.get('/models/move')
-    assert response.status_code == 500

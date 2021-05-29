@@ -2,11 +2,12 @@ from chess import Board
 from chess.engine import SimpleEngine, Limit
 import json
 from os import environ
+from sys import platform
 
-DEPTH = environ.get('DEPTH', 10)
-HASH_SIZE = environ.get('HASH_SIZE', 256)
+DEPTH = int(environ.get('DEPTH', 10))
+HASH_SIZE = int(environ.get('HASH_SIZE', 256))
 
-executable = "stockfish_linux"
+executable = f'stockfish_{"mac" if platform == "darwin" else "linux"}'
 engine = SimpleEngine.popen_uci(f'./assets/{executable}')
 engine.configure({"Hash": HASH_SIZE})
 
@@ -23,7 +24,7 @@ def model(board, n):
     return [move for move, _ in sorted(move_scores, key=lambda x: -x[1])[:n]]
 
 
-def top_moves_route(event, context):
+def top_moves_route(event, context=None):
     data = event['queryStringParameters']
     try:
         board = Board(data['fen'])

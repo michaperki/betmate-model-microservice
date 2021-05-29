@@ -4,11 +4,12 @@ from numpy import load
 from math import pow
 import json
 from os import environ
+from sys import platform
 
-TIME_LIMIT = environ.get('TIME_LIMIT', 0.1)
-HASH_SIZE = environ.get('HASH_SIZE', 256)
+TIME_LIMIT = float(environ.get('TIME_LIMIT', 0.1))
+HASH_SIZE = int(environ.get('HASH_SIZE', 256))
 
-executable = "stockfish_linux"
+executable = f'stockfish_{"mac" if platform == "darwin" else "linux"}'
 engine = SimpleEngine.popen_uci(f'./assets/{executable}')
 engine.configure({"Hash": HASH_SIZE})
 
@@ -50,7 +51,7 @@ def model(board, white_time, black_time):
     }
 
 
-def wdl_route(event, context):
+def wdl_route(event, context=None):
     data = event['queryStringParameters']
     try:
         board = Board(data['fen'])

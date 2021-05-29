@@ -1,15 +1,10 @@
 import pytest
 
-from src import app, engine
-
-
-@pytest.fixture
-def client():
-    return app.test_client()
-
+from src import wdl_engine, top_moves_engine
 
 @pytest.fixture(scope='session', autouse=True)
 def cleanup(request):
     def close_engine():
-        engine.close()
+        wdl_engine.close()
+        top_moves_engine.close()
     request.addfinalizer(close_engine)
