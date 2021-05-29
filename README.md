@@ -32,7 +32,7 @@ To run: `pytest`
 
 To emulate the functionality of the AWS API Gateway endpoint and AWS Lambda, Docker Compose is used. It spins up 3 containers. 2 of which are the AWS Lambda functions, `top_moves` and `wdl`, and the other is a "router" that redirects requests to the appropriate AWS Lambda container.
 
-To build: `docker compose build`
+To build: `docker-compose build`
 
 To run: `docker compose up`
 
