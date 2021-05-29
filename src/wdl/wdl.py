@@ -19,6 +19,7 @@ with open('./assets/white_win_fraction.npy', 'rb') as f:
 with open('./assets/draw_fraction.npy', 'rb') as f:
     df = load(f)
 
+
 def get_win_bin(board):
     info = engine.analyse(board, Limit(time=TIME_LIMIT))
     eval = info['score'].white().score(mate_score=1000)
@@ -35,6 +36,7 @@ def get_win_bin(board):
     elif pwin >= 0.00:
         return 4
 
+
 def model(board, white_time, black_time):
     win_bin: int = get_win_bin(board)
 
@@ -46,6 +48,7 @@ def model(board, white_time, black_time):
         'draw': df[white_time, black_time, win_bin],
         'black_win': bwf[white_time, black_time, win_bin]
     }
+
 
 def wdl_route(event, context):
     data = event['queryStringParameters']
@@ -61,7 +64,6 @@ def wdl_route(event, context):
                 "message": str(e)
             })
         }
-
 
     probabilities = model(board, white_time, black_time)
 

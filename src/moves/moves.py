@@ -6,7 +6,6 @@ from os import environ
 DEPTH = environ.get('DEPTH', 10)
 HASH_SIZE = environ.get('HASH_SIZE', 256)
 
-
 executable = "stockfish_linux"
 engine = SimpleEngine.popen_uci(f'./assets/{executable}')
 engine.configure({"Hash": HASH_SIZE})
@@ -19,9 +18,10 @@ def get_move_rating(board, move):
 
 def model(board, n):
     move_scores = [(board.san(move), get_move_rating(board, move))
-                    for move in board.legal_moves]
+                   for move in board.legal_moves]
 
     return [move for move, _ in sorted(move_scores, key=lambda x: -x[1])[:n]]
+
 
 def moves_route(event, context):
     data = event['queryStringParameters']
@@ -45,7 +45,6 @@ def moves_route(event, context):
                 "message": "'n' must be a positive integer"
             })
         }
-
 
     top_moves = model(board, n)
 
