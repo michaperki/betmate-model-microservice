@@ -12,11 +12,11 @@ services:
       - "8000:8000"
   wdl-container:
     image: wdl-image
-    build: src/wdl
+    build: src/lambdas/wdl
     ports:
       - "8081:8080"
   top-moves-container:
     image: top-moves-image
-    build: src/top_moves
+    build: src/lambdas/top_moves
     ports:
       - "8082:8080"

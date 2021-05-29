@@ -53,9 +53,8 @@ To put these functions into production, you need to:
 ├── assets # models and Stockfish executables
 ├── src
 │   ├── router # request handler for running locally
-│   ├── top_moves # top_moves function
-│   ├── wdl # wdl function
-│   └── __init__.py # imports for testing
+│   ├── lambdas # functions to deploy, see "Function Structure"
+│   └── __init__.py # imports lambdas for testing accessibility
 ├── tests # testing files
 ├── lint.sh # linting script
 ├── push_top_moves.sh # deployment script for top_moves model
