@@ -2,6 +2,7 @@ import pytest
 
 from src import wdl_engine, top_moves_engine
 
+
 @pytest.fixture(scope='session', autouse=True)
 def cleanup(request):
     def close_engine():

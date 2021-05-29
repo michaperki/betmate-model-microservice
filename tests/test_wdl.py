@@ -50,4 +50,3 @@ def test_wdl_bad_time():
     for white_time, black_time in get_bad_time_list():
         response = wdl_route(create_wdl_query(fen, white_time, black_time))
         assert response['statusCode'] == 400
-
