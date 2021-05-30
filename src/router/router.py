@@ -28,7 +28,9 @@ def create_handler(port: int, lock: Lock):
       - Lock access to lambda container as request is made to it
       - Parse response from lambda container and return to caller
     """
+
     url = get_url(port)
+
     async def handle_route(request: web.Request):
         q = dict(request.query.items())
         data = json.dumps({'queryStringParameters': q})
