@@ -1,0 +1,22 @@
+version: '3'
+services:
+  router:
+    image: redirect-server-image
+    build: src/router
+    depends_on: 
+      - wdl-container
+      - top-moves-container
+    environment: 
+      - HOST_URL=host.docker.internal
+    ports:
+      - "8000:8000"
+  wdl-container:
+    image: wdl-image
+    build: src/lambdas/wdl
+    ports:
+      - "8081:8080"
+  top-moves-container:
+    image: top-moves-image
+    build: src/lambdas/top_moves
+    ports:
+      - "8082:8080"
