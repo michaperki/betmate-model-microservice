@@ -8,8 +8,21 @@ import asyncio
 HOST_URL = os.environ.get('HOST_URL', 'localhost')
 
 
-class RedirectHandler(SimpleHTTPRequestHandler):
+class RouteHandler(SimpleHTTPRequestHandler):
     def do_GET(self):
+        """
+        Parses path of request to determine which Lambda to pass request to.
+        Then asynchonously waits for response from Lambda, which is then parsed and returned to caller.
+
+        Also reformats request to fit Lambda schema:
+        - Takes query string and turns it into a JSON body
+        - Makes a POST request instead of GET
+
+        Returns 400 if:
+        - Route is incorrect
+        - Query string is incorrect
+        """
+
         route, query = self.path.split('?')
         *_, target = route.split('/')
 
@@ -29,12 +42,13 @@ class RedirectHandler(SimpleHTTPRequestHandler):
             message = json.dumps({'message': 'FAILURE', 'data': 'bad URL'})
             self.wfile.write(bytes(message, 'utf8'))
 
-    def make_headers(self, code):
+    def make_headers(self, code: int):
         self.send_response(code)
         self.send_header('Content-type', 'application/json')
         self.end_headers()
 
-    async def make_request(self, url, data):
+    async def make_request(self, url: str, data: str):
+        """Asynchronous request. Returns parsed response to caller."""
         async with aiohttp.ClientSession() as session,\
                    session.post(url, data=data) as resp:
             payload = await resp.text()
@@ -45,7 +59,7 @@ class RedirectHandler(SimpleHTTPRequestHandler):
 
 
 def main():
-    handler = HTTPServer(('0.0.0.0', 8000), RedirectHandler)
+    handler = HTTPServer(('0.0.0.0', 8000), RouteHandler)
     print("serving at port %s" % 8000)
     handler.serve_forever()
 

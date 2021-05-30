@@ -3,6 +3,11 @@ import chess
 
 
 def generate_chess_game():
+    """
+    Generate arbitrary game for 30 moves.
+
+    Provides FEN and player times after each move.
+    """
     random.seed()
     game = chess.Board()
     white_time = 180

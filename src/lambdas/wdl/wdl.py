@@ -1,30 +1,39 @@
+from typing import Dict
 from chess import Board
 from chess.engine import SimpleEngine, Limit
-from numpy import load
+from numpy import load, ndarray
 from math import pow
 import json
 from os import environ
 from sys import platform
 
+# Config
 TIME_LIMIT = float(environ.get('TIME_LIMIT', 0.1))
 HASH_SIZE = int(environ.get('HASH_SIZE', 256))
 
+# Init Stockfish chess engine
 executable = f'stockfish_{"mac" if platform == "darwin" else "linux"}'
 engine = SimpleEngine.popen_uci(f'./assets/{executable}')
 engine.configure({"Hash": HASH_SIZE})
 
+# Load model
 with open('./assets/black_win_fraction.npy', 'rb') as f:
-    bwf = load(f)
+    bwf: ndarray = load(f)
 with open('./assets/white_win_fraction.npy', 'rb') as f:
-    wwf = load(f)
+    wwf: ndarray = load(f)
 with open('./assets/draw_fraction.npy', 'rb') as f:
-    df = load(f)
+    df: ndarray = load(f)
 
 
-def get_win_bin(board):
+def get_win_bin(board: Board) -> int:
+    """Convert `board` state to 'bin' corresponding to 'white vs. black' favorability"""
+
+    # Evaluate board
     info = engine.analyse(board, Limit(time=TIME_LIMIT))
-    eval = info['score'].white().score(mate_score=1000)
-    pwin = 1 / (1 + pow(10, -eval / 400))
+    score = info['score'].white().score(mate_score=1000)
+
+    # Logistic transform on evaluation
+    pwin = 1 / (1 + pow(10, -score / 400))
 
     if pwin < 0.10:
         return 0
@@ -38,9 +47,11 @@ def get_win_bin(board):
         return 4
 
 
-def model(board, white_time, black_time):
+def model(board: Board, white_time: int, black_time: int) -> Dict[str, float]:
+    """Get win/draw/loss probabilities based on `board` state and player times."""
     win_bin: int = get_win_bin(board)
 
+    # Ensure times are within range of model
     white_time = min(180, max(1, white_time))
     black_time = min(180, max(1, black_time))
 
@@ -52,6 +63,17 @@ def model(board, white_time, black_time):
 
 
 def wdl_route(event, context=None):
+    """
+    Handler of AWS Lambda call.
+    Parses input and passes it to `model()`.
+
+    Will return 400 if:
+    - `fen` is not provided or not in proper notation
+    - `white_time` is not provided or can't be cast to int
+    - `black_time` is not provided or can't be cast to int
+
+    Otherwise, will return result from `model()` with 200 status.
+    """
     data = event['queryStringParameters']
     try:
         board = Board(data['fen'])

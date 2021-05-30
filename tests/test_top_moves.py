@@ -9,7 +9,7 @@ def get_bad_n_list():
     return ['a', 'chess', None, [6], False, -10, 0]
 
 
-def create_top_move_query(fen, n):
+def create_top_move_query(fen: str, n: int):
     return {
         'queryStringParameters': {
             'fen': fen,
@@ -20,11 +20,12 @@ def create_top_move_query(fen, n):
 
 def test_top_move_good():
     for fen, _, _ in generate_chess_game():
-        response = top_moves_route(create_top_move_query(fen, random.randint(3, 6)))
+        n = random.randint(3, 6)
+        response = top_moves_route(create_top_move_query(fen, n))
         assert response['statusCode'] == 200
         data = json.loads(response['body'])['data']
         assert type(data) == list
-        assert len(data) >= 0
+        assert len(data) <= n
 
 
 def test_top_move_bad_fen():

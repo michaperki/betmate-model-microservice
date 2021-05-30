@@ -30,7 +30,7 @@ To run: `pytest`
 
 ### Run locally
 
-To emulate the functionality of the AWS API Gateway endpoint and AWS Lambda, Docker Compose is used. It spins up 3 containers. 2 of which are the AWS Lambda functions, `top_moves` and `wdl`, and the other is a "router" that redirects requests to the appropriate AWS Lambda container.
+To emulate the functionality of the AWS API Gateway endpoint and AWS Lambda, Docker Compose is used. It spins up 3 containers. 2 of which are the AWS Lambda functions, `top_moves` and `wdl`, and the other is a "router" that routes requests to the appropriate AWS Lambda container.
 
 To build: `docker-compose build`
 
@@ -53,7 +53,7 @@ To put these functions into production, you need to:
 ├── assets # models and Stockfish executables
 ├── src
 │   ├── router # request handler for running locally
-│   ├── lambdas # functions to deploy, see "Function Structure"
+│   ├── lambdas # all functions, see "Function Structure"
 │   └── __init__.py # imports lambdas for testing accessibility
 ├── tests # testing files
 ├── lint.sh # linting script
