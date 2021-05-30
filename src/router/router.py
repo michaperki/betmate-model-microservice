@@ -1,67 +1,54 @@
-from http.server import SimpleHTTPRequestHandler, HTTPServer
 import json
-from urllib.parse import parse_qs
 import os
-import aiohttp
-import asyncio
+from aiohttp import web, ClientSession
+from asyncio import Lock
 
 HOST_URL = os.environ.get('HOST_URL', 'localhost')
 
+# Locks ensure that a Lambda container does not
+# get additional requests while in execution
+# which causes the container to crash
+wdl_lock = Lock()
+top_moves_lock = Lock()
 
-class RouteHandler(SimpleHTTPRequestHandler):
-    def do_GET(self):
-        """
-        Parses path of request to determine which Lambda to pass request to.
-        Then asynchonously waits for response from Lambda, which is then parsed and returned to caller.
 
-        Also reformats request to fit Lambda schema:
-        - Takes query string and turns it into a JSON body
-        - Makes a POST request instead of GET
+def get_url(port: int):
+    return f'http://{HOST_URL}:{port}/2015-03-31/functions/function/invocations'
 
-        Returns 400 if:
-        - Route is incorrect
-        - Query string is incorrect
-        """
 
-        route, query = self.path.split('?')
-        *_, target = route.split('/')
+def create_handler(port: int, lock: Lock):
+    """
+    Generic async route handler with locking.
 
-        port = {
-            'wdl': 8081,
-            'top-moves': 8082
-        }.get(target, None)
+    Locking with `lock` allows requests to a specific lambda container, specified by `port`,
+    to be made one at a time, as that is all a lambda container can handle.
 
-        if port:
-            url = f'http://{HOST_URL}:{port}/2015-03-31/functions/function/invocations'
-            data = json.dumps({'queryStringParameters': {k: v[0] for k, v in parse_qs(query).items()}})
+    Handler will:
+      - Parse the request query to create body for new request
+      - Lock access to lambda container as request is made to it
+      - Parse response from lambda container and return to caller
+    """
+    url = get_url(port)
+    async def handle_route(request: web.Request):
+        q = dict(request.query.items())
+        data = json.dumps({'queryStringParameters': q})
 
-            asyncio.run(self.make_request(url, data))
-
-        else:
-            self.make_headers(400)
-            message = json.dumps({'message': 'FAILURE', 'data': 'bad URL'})
-            self.wfile.write(bytes(message, 'utf8'))
-
-    def make_headers(self, code: int):
-        self.send_response(code)
-        self.send_header('Content-type', 'application/json')
-        self.end_headers()
-
-    async def make_request(self, url: str, data: str):
-        """Asynchronous request. Returns parsed response to caller."""
-        async with aiohttp.ClientSession() as session,\
+        async with lock, \
+                   ClientSession() as session, \
                    session.post(url, data=data) as resp:
-            payload = await resp.text()
-            data = json.loads(payload)
-            self.make_headers(data['statusCode'])
-            message = json.dumps(json.loads(data['body']))
-            self.wfile.write(bytes(message, 'utf8'))
+
+            result = json.loads(await resp.text())
+
+        return web.Response(body=result['body'], status=result['statusCode'])
+
+    return handle_route
 
 
 def main():
-    handler = HTTPServer(('0.0.0.0', 8000), RouteHandler)
-    print("serving at port %s" % 8000)
-    handler.serve_forever()
+    handler = web.Application()
+    handler.add_routes([web.get('/dev/wdl', create_handler(8081, wdl_lock)),
+                        web.get('/dev/top-moves', create_handler(8082, top_moves_lock))])
+    web.run_app(handler, port=8000)
 
 
 if __name__ == '__main__':
