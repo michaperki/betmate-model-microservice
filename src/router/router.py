@@ -47,10 +47,10 @@ def create_handler(port: int, lock: Lock):
 
 
 def main():
-    handler = web.Application()
-    handler.add_routes([web.get('/dev/wdl', create_handler(8081, wdl_lock)),
-                        web.get('/dev/top-moves', create_handler(8082, top_moves_lock))])
-    web.run_app(handler, port=8000)
+    app = web.Application()
+    app.add_routes([web.get('/dev/wdl', create_handler(8081, wdl_lock)),
+                   web.get('/dev/top-moves', create_handler(8082, top_moves_lock))])
+    web.run_app(app, port=8000)
 
 
 if __name__ == '__main__':
