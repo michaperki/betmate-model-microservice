@@ -97,3 +97,14 @@ def wdl_route(event, context=None):
             "data": probabilities
         })
     }
+
+if __name__ == "__main__":
+    from flask import Flask, request
+
+    app = Flask(__name__)
+
+    @app.route("/predict", methods=["POST"])
+    def route():
+        return wdl_route({"queryStringParameters": request.get_json().get("queryStringParameters", {})})
+
+    app.run(host="0.0.0.0", port=8080)

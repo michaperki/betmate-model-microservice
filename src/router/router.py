@@ -1,57 +1,46 @@
+
 import json
-import os
 from aiohttp import web, ClientSession
 from asyncio import Lock
 
-HOST_URL = os.environ.get('HOST_URL', 'localhost')
-
-# Locks ensure that a Lambda container does not
-# get additional requests while in execution
-# which causes the container to crash
 wdl_lock = Lock()
 top_moves_lock = Lock()
 
+ROUTE_URLS = {
+    "wdl": "http://wdl-container:8080/predict",
+    "top-moves": "http://top-moves-container:8080/predict",
+}
 
-def get_url(port: int):
-    return f'http://{HOST_URL}:{port}/2015-03-31/functions/function/invocations'
-
-
-def create_handler(port: int, lock: Lock):
-    """
-    Generic async route handler with locking.
-
-    Locking with `lock` allows requests to a specific lambda container, specified by `port`,
-    to be made one at a time, as that is all a lambda container can handle.
-
-    Handler will:
-      - Parse the request query to create body for new request
-      - Lock access to lambda container as request is made to it
-      - Parse response from lambda container and return to caller
-    """
-
-    url = get_url(port)
-
+def create_handler(url: str, lock: Lock):
     async def handle_route(request: web.Request):
         q = dict(request.query.items())
         data = json.dumps({'queryStringParameters': q})
 
-        async with lock, \
-                   ClientSession() as session, \
-                   session.post(url, data=data) as resp:
-
-            result = json.loads(await resp.text())
-
-        return web.Response(body=result['body'], status=result['statusCode'])
+        async with lock, ClientSession() as session:
+            headers = {'Content-Type': 'application/json'}
+            try:
+                async with session.post(url, data=data, headers=headers) as resp:
+                    text = await resp.text()
+                    print("Upstream raw response:", text)  # 👈 Add this line
+                    if resp.status != 200:
+                        return web.Response(status=resp.status, text=f'Upstream error: {text}')
+                    result = json.loads(text)
+                    body = result.get('body', text)
+                    status = result.get('statusCode', 200)
+                    return web.Response(body=body, status=status)
+            except Exception as e:
+                return web.Response(status=500, text=f'Router exception: {e}')
 
     return handle_route
 
-
 def main():
     app = web.Application()
-    app.add_routes([web.get('/dev/wdl', create_handler(8081, wdl_lock)),
-                   web.get('/dev/top-moves', create_handler(8082, top_moves_lock))])
+    app.add_routes([
+        web.get('/dev/wdl', create_handler(ROUTE_URLS["wdl"], wdl_lock)),
+        web.get('/dev/top-moves', create_handler(ROUTE_URLS["top-moves"], top_moves_lock)),
+    ])
     web.run_app(app, port=8000)
-
 
 if __name__ == '__main__':
     main()
+

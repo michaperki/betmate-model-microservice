@@ -47,6 +47,7 @@ def top_moves_route(event, context=None):
     Otherwise, will return result from `model()` with 200 status.
     """
     data = event['queryStringParameters']
+    print("Received request:", data)
     try:
         board = Board(data['fen'])
         n: int = int(data['n'])
@@ -77,3 +78,16 @@ def top_moves_route(event, context=None):
             "data": top_moves
         })
     }
+
+if __name__ == "__main__":
+    from flask import Flask, request
+
+    app = Flask(__name__)
+
+    @app.route("/predict", methods=["POST"])
+    def route():
+        data = request.get_json(force=True).get("queryStringParameters", {})
+        print("[top-moves] Received request with FEN:", data.get("fen"), "n =", data.get("n"))
+        return top_moves_route({"queryStringParameters": data})
+
+    app.run(host="0.0.0.0", port=8080)
