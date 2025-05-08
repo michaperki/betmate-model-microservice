@@ -21,7 +21,7 @@ def create_handler(url: str, lock: Lock):
             try:
                 async with session.post(url, data=data, headers=headers) as resp:
                     text = await resp.text()
-                    print("Upstream raw response:", text)  # 👈 Add this line
+                    # print("Upstream raw response:", text)  # 👈 Add this line
                     if resp.status != 200:
                         return web.Response(status=resp.status, text=f'Upstream error: {text}')
                     result = json.loads(text)
