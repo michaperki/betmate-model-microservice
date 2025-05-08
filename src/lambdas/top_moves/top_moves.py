@@ -87,7 +87,7 @@ if __name__ == "__main__":
     @app.route("/predict", methods=["POST"])
     def route():
         data = request.get_json(force=True).get("queryStringParameters", {})
-        print("[top-moves] Received request with FEN:", data.get("fen"), "n =", data.get("n"))
+        # print("[top-moves] Received request with FEN:", data.get("fen"), "n =", data.get("n"))
         return top_moves_route({"queryStringParameters": data})
 
     app.run(host="0.0.0.0", port=8080)
