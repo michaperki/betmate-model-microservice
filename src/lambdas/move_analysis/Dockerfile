@@ -1,15 +1,21 @@
-FROM public.ecr.aws/lambda/python:3.8
+FROM python:3.8-slim
 
-# Install dependencies
+WORKDIR /app
+
+# Install dependencies with exact versions to avoid compatibility issues
 COPY requirements.txt .
-RUN pip install -r requirements.txt --target "${LAMBDA_TASK_ROOT}"
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy Stockfish engine
-COPY assets/stockfish_linux ${LAMBDA_TASK_ROOT}/assets/stockfish_linux
-RUN chmod +x ${LAMBDA_TASK_ROOT}/assets/stockfish_linux
+# Create assets directory
+RUN mkdir -p /app/assets
 
-# Copy function code
-COPY move_analysis.py ${LAMBDA_TASK_ROOT}
+# Copy function code and entrypoint
+COPY move_analysis.py .
+COPY entrypoint.sh .
+RUN chmod +x entrypoint.sh
 
-# Set the CMD to your handler
-CMD [ "move_analysis.move_analysis_route" ]
+# Expose port
+EXPOSE 8080
+
+# Copy Stockfish engine - We'll mount this at runtime
+CMD ["./entrypoint.sh"]
