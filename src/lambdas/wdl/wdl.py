@@ -36,16 +36,11 @@ with open('./assets/draw_fraction.npy', 'rb') as f:
 def get_win_bin(board: Board) -> int:
     """Convert `board` state to 'bin' corresponding to 'white vs. black' favorability"""
 
-    # Get a fresh engine instance for this request
-    engine = get_engine()
-
-    # Evaluate board
-    try:
+    # Use a context manager to automatically close the engine
+    with get_engine() as engine:
+        # Evaluate board
         info = engine.analyse(board, Limit(time=TIME_LIMIT))
         score = info['score'].white().score(mate_score=1000)
-    finally:
-        # Always quit the engine to avoid resource leaks
-        engine.quit()
 
     # Logistic transform on evaluation
     pwin = 1 / (1 + pow(10, -score / 400))
