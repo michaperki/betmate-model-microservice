@@ -10,7 +10,12 @@ DEPTH = int(environ.get('DEPTH', 10))
 HASH_SIZE = int(environ.get('HASH_SIZE', 256))
 
 def get_engine():
-    """Create and return a new Stockfish engine instance for each request."""
+    """
+    Create and return a new Stockfish engine instance.
+    This function will use the system-installed Stockfish if STOCKFISH_PATH is set,
+    otherwise it falls back to the bundled binary.
+    The returned engine supports context manager protocol for automatic cleanup.
+    """
     STOCKFISH_PATH = environ.get('STOCKFISH_PATH', None)
     if STOCKFISH_PATH:
         # Use system-installed Stockfish if environment variable is set
@@ -27,13 +32,11 @@ def get_move_rating(board: Board, move: Move) -> int:
     """
     Get integer rating of `move` on given `board`.
     Rating is approximate and changes on each call.
+    Creates a new engine instance per call for better stability.
     """
-    engine = get_engine()
-    try:
+    with get_engine() as engine:
         analysis = engine.analyse(board, Limit(depth=DEPTH), root_moves=[move])
         return analysis.get('score').pov(board.turn).score(mate_score=1000)
-    finally:
-        engine.quit()
 
 
 def model(board: Board, n: int) -> List[str]:
@@ -41,10 +44,21 @@ def model(board: Board, n: int) -> List[str]:
     Return top `n` moves on `board` in SAN notation.
     Move ratings are approximate and will change on each call.
     """
-    move_scores = [(board.san(move), get_move_rating(board, move))
-                   for move in board.legal_moves]
+    # Create a single engine instance for all move ratings in this request
+    engine = get_engine()
+    try:
+        # Modified function to use the shared engine
+        def get_move_rating_with_engine(move):
+            analysis = engine.analyse(board, Limit(depth=DEPTH), root_moves=[move])
+            return analysis.get('score').pov(board.turn).score(mate_score=1000)
 
-    return [move for move, _ in sorted(move_scores, key=lambda x: -x[1])[:n]]
+        move_scores = [(board.san(move), get_move_rating_with_engine(move))
+                       for move in board.legal_moves]
+
+        return [move for move, _ in sorted(move_scores, key=lambda x: -x[1])[:n]]
+    finally:
+        # Ensure engine is always closed properly
+        engine.quit()
 
 
 def top_moves_route(event, context=None):
