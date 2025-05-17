@@ -107,13 +107,25 @@ def top_moves_route(event, context=None):
 
 if __name__ == "__main__":
     from flask import Flask, request
+    import threading
+
+    # Add a simple lock to prevent multiple concurrent analyses
+    # This helps avoid resource contention and engine crashes
+    stockfish_lock = threading.Lock()
 
     app = Flask(__name__)
 
     @app.route("/predict", methods=["POST"])
     def route():
         data = request.get_json(force=True).get("queryStringParameters", {})
-        # print("[top-moves] Received request with FEN:", data.get("fen"), "n =", data.get("n"))
-        return top_moves_route({"queryStringParameters": data})
+        print("[top-moves] Received request - acquiring lock")
 
-    app.run(host="0.0.0.0", port=8080)
+        # Use lock to ensure only one Stockfish instance runs at a time
+        with stockfish_lock:
+            print("[top-moves] Lock acquired, processing request")
+            result = top_moves_route({"queryStringParameters": data})
+            print("[top-moves] Request processed, releasing lock")
+            return result
+
+    # Limit to only 1 worker thread to prevent concurrent Stockfish instances
+    app.run(host="0.0.0.0", port=8080, threaded=False)
