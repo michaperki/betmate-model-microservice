@@ -6,8 +6,8 @@ from os import environ
 from sys import platform
 
 # Config
-DEPTH = int(environ.get('DEPTH', 10))
-HASH_SIZE = int(environ.get('HASH_SIZE', 256))
+DEPTH = int(environ.get('DEPTH', 6))  # Reduced from 10 to lower memory usage
+HASH_SIZE = int(environ.get('HASH_SIZE', 128))  # Reduced from 256 to lower memory usage
 
 def get_engine():
     """
@@ -28,13 +28,17 @@ def get_engine():
     return engine
 
 
-def get_move_rating(board: Board, move: Move) -> int:
+def get_move_rating(board: Board, move: Move, engine=None) -> int:
     """
     Get integer rating of `move` on given `board`.
     Rating is approximate and changes on each call.
-    Creates a new engine instance per call for better stability.
+    Uses the provided engine or creates a new one if not provided.
     """
-    with get_engine() as engine:
+    if engine is None:
+        with get_engine() as temp_engine:
+            analysis = temp_engine.analyse(board, Limit(depth=DEPTH), root_moves=[move])
+            return analysis.get('score').pov(board.turn).score(mate_score=1000)
+    else:
         analysis = engine.analyse(board, Limit(depth=DEPTH), root_moves=[move])
         return analysis.get('score').pov(board.turn).score(mate_score=1000)
 
@@ -42,18 +46,19 @@ def get_move_rating(board: Board, move: Move) -> int:
 def model(board: Board, n: int) -> List[str]:
     """
     Return top `n` moves on `board` in SAN notation.
-    Each move is analyzed in its own short-lived engine instance.
+    Uses a single engine instance for all move analysis to prevent memory issues.
     """
     move_scores = []
-    for move in board.legal_moves:
-        try:
-            with get_engine() as engine:
+    # Use a single engine instance for all moves to reduce memory usage
+    with get_engine() as engine:
+        for move in board.legal_moves:
+            try:
                 analysis = engine.analyse(board, Limit(depth=DEPTH), root_moves=[move])
                 score = analysis.get('score').pov(board.turn).score(mate_score=1000)
                 move_scores.append((board.san(move), score))
-        except Exception as e:
-            print(f"Error analyzing move {move}: {e}")
-            move_scores.append((board.san(move), float('-inf')))  # Worst score fallback
+            except Exception as e:
+                print(f"Error analyzing move {move}: {e}")
+                move_scores.append((board.san(move), float('-inf')))  # Worst score fallback
 
     return [move for move, _ in sorted(move_scores, key=lambda x: -x[1])[:n]]
 
