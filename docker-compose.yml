@@ -22,14 +22,19 @@ services:
     volumes:
       - ./assets:/app/assets
     environment:
-      - TIME_LIMIT=0.1
-      - HASH_SIZE=256
+      - TIME_LIMIT=0.01
+      - HASH_SIZE=128
+      - STOCKFISH_PATH=/usr/games/stockfish
 
   top-moves-container:
     image: top-moves-image
     build: src/lambdas/top_moves
     ports:
       - "8082:8080"
+    environment:
+      - DEPTH=6
+      - HASH_SIZE=128
+      - STOCKFISH_PATH=/usr/games/stockfish
 
   move-analysis-container:
     image: move-analysis-image
@@ -39,6 +44,7 @@ services:
     volumes:
       - ./assets:/app/assets
     environment:
-      - DEPTH=10
-      - HASH_SIZE=256
+      - DEPTH=8
+      - HASH_SIZE=128
+      - STOCKFISH_PATH=/usr/games/stockfish
 
