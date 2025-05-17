@@ -42,23 +42,20 @@ def get_move_rating(board: Board, move: Move) -> int:
 def model(board: Board, n: int) -> List[str]:
     """
     Return top `n` moves on `board` in SAN notation.
-    Move ratings are approximate and will change on each call.
+    Each move is analyzed in its own short-lived engine instance.
     """
-    # Create a single engine instance for all move ratings in this request
-    engine = get_engine()
-    try:
-        # Modified function to use the shared engine
-        def get_move_rating_with_engine(move):
-            analysis = engine.analyse(board, Limit(depth=DEPTH), root_moves=[move])
-            return analysis.get('score').pov(board.turn).score(mate_score=1000)
+    move_scores = []
+    for move in board.legal_moves:
+        try:
+            with get_engine() as engine:
+                analysis = engine.analyse(board, Limit(depth=DEPTH), root_moves=[move])
+                score = analysis.get('score').pov(board.turn).score(mate_score=1000)
+                move_scores.append((board.san(move), score))
+        except Exception as e:
+            print(f"Error analyzing move {move}: {e}")
+            move_scores.append((board.san(move), float('-inf')))  # Worst score fallback
 
-        move_scores = [(board.san(move), get_move_rating_with_engine(move))
-                       for move in board.legal_moves]
-
-        return [move for move, _ in sorted(move_scores, key=lambda x: -x[1])[:n]]
-    finally:
-        # Ensure engine is always closed properly
-        engine.quit()
+    return [move for move, _ in sorted(move_scores, key=lambda x: -x[1])[:n]]
 
 
 def top_moves_route(event, context=None):
