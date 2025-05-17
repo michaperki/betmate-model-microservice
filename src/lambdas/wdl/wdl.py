@@ -12,8 +12,14 @@ TIME_LIMIT = float(environ.get('TIME_LIMIT', 0.1))
 HASH_SIZE = int(environ.get('HASH_SIZE', 256))
 
 # Init Stockfish chess engine
-executable = f'stockfish_{"mac" if platform == "darwin" else "linux"}'
-engine = SimpleEngine.popen_uci(f'./assets/{executable}')
+STOCKFISH_PATH = environ.get('STOCKFISH_PATH', None)
+if STOCKFISH_PATH:
+    # Use system-installed Stockfish if environment variable is set
+    engine = SimpleEngine.popen_uci(STOCKFISH_PATH)
+else:
+    # Fall back to bundled binary if no environment variable
+    executable = f'stockfish_{"mac" if platform == "darwin" else "linux"}'
+    engine = SimpleEngine.popen_uci(f'./assets/{executable}')
 engine.configure({"Hash": HASH_SIZE})
 
 # Load model
