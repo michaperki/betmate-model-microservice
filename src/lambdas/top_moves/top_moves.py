@@ -9,16 +9,18 @@ from sys import platform
 DEPTH = int(environ.get('DEPTH', 10))
 HASH_SIZE = int(environ.get('HASH_SIZE', 256))
 
-# Init Stockfish chess engine
-STOCKFISH_PATH = environ.get('STOCKFISH_PATH', None)
-if STOCKFISH_PATH:
-    # Use system-installed Stockfish if environment variable is set
-    engine = SimpleEngine.popen_uci(STOCKFISH_PATH)
-else:
-    # Fall back to bundled binary if no environment variable
-    executable = f'stockfish_{"mac" if platform == "darwin" else "linux"}'
-    engine = SimpleEngine.popen_uci(f'./assets/{executable}')
-engine.configure({"Hash": HASH_SIZE})
+def get_engine():
+    """Create and return a new Stockfish engine instance for each request."""
+    STOCKFISH_PATH = environ.get('STOCKFISH_PATH', None)
+    if STOCKFISH_PATH:
+        # Use system-installed Stockfish if environment variable is set
+        engine = SimpleEngine.popen_uci(STOCKFISH_PATH)
+    else:
+        # Fall back to bundled binary if no environment variable
+        executable = f'stockfish_{"mac" if platform == "darwin" else "linux"}'
+        engine = SimpleEngine.popen_uci(f'./assets/{executable}')
+    engine.configure({"Hash": HASH_SIZE})
+    return engine
 
 
 def get_move_rating(board: Board, move: Move) -> int:
@@ -26,8 +28,12 @@ def get_move_rating(board: Board, move: Move) -> int:
     Get integer rating of `move` on given `board`.
     Rating is approximate and changes on each call.
     """
-    analysis = engine.analyse(board, Limit(depth=DEPTH), root_moves=[move])
-    return analysis.get('score').pov(board.turn).score(mate_score=1000)
+    engine = get_engine()
+    try:
+        analysis = engine.analyse(board, Limit(depth=DEPTH), root_moves=[move])
+        return analysis.get('score').pov(board.turn).score(mate_score=1000)
+    finally:
+        engine.quit()
 
 
 def model(board: Board, n: int) -> List[str]:
