@@ -13,9 +13,27 @@ HASH_SIZE = int(environ.get('HASH_SIZE', 128))  # Reduced from 256 to lower memo
 
 def get_engine():
     """Create and return a new Stockfish engine instance for each request."""
+    # Try primary path (system-installed Stockfish)
     STOCKFISH_PATH = environ.get('STOCKFISH_PATH', '/usr/games/stockfish')
-    # Always prefer the system-installed Stockfish path
-    engine = SimpleEngine.popen_uci(STOCKFISH_PATH)
+
+    try:
+        engine = SimpleEngine.popen_uci(STOCKFISH_PATH)
+        print(f"Successfully initialized Stockfish from {STOCKFISH_PATH}")
+    except Exception as e:
+        # Fallback to bundled binary if system path fails
+        print(f"Failed to load Stockfish from {STOCKFISH_PATH}: {e}")
+        print("Trying bundled binary as fallback...")
+        try:
+            engine = SimpleEngine.popen_uci("./assets/stockfish_linux")
+            print("Successfully initialized Stockfish from bundled binary")
+        except Exception as e2:
+            # One final attempt with absolute path
+            import os
+            fallback_path = os.path.join(os.getcwd(), "assets", "stockfish_linux")
+            print(f"Trying absolute path: {fallback_path}")
+            engine = SimpleEngine.popen_uci(fallback_path)
+            print(f"Successfully initialized Stockfish from {fallback_path}")
+
     engine.configure({"Hash": HASH_SIZE})
     return engine
 
