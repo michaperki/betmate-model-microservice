@@ -22,7 +22,7 @@ services:
     volumes:
       - ./assets:/app/assets
     environment:
-      - TIME_LIMIT=0.5
+      - TIME_LIMIT=1.0
       - HASH_SIZE=128
       - STOCKFISH_PATH=/usr/games/stockfish
 
