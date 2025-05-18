@@ -1,26 +1,48 @@
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 from chess import Board, Move
 from chess.engine import SimpleEngine, Limit
 import json
 from os import environ
 from sys import platform
+import atexit
 
 # Config
-DEPTH = int(environ.get('DEPTH', 10))
-HASH_SIZE = int(environ.get('HASH_SIZE', 256))
+DEPTH = int(environ.get('DEPTH', 6))  # Lower default depth to reduce memory usage
+HASH_SIZE = int(environ.get('HASH_SIZE', 128))
+
+# Global engine instance (Singleton pattern)
+_ENGINE: Optional[SimpleEngine] = None
+
 
 def get_engine():
-    """Create and return a new Stockfish engine instance for each request."""
-    STOCKFISH_PATH = environ.get('STOCKFISH_PATH', None)
-    if STOCKFISH_PATH:
-        # Use system-installed Stockfish if environment variable is set
-        engine = SimpleEngine.popen_uci(STOCKFISH_PATH)
-    else:
-        # Fall back to bundled binary if no environment variable
-        executable = f'stockfish_{"mac" if platform == "darwin" else "linux"}'
-        engine = SimpleEngine.popen_uci(f'./assets/{executable}')
-    engine.configure({"Hash": HASH_SIZE})
-    return engine
+    """Return or create a Stockfish engine instance (singleton pattern)."""
+    global _ENGINE
+
+    if _ENGINE is None:
+        print("Initializing Stockfish engine...")
+        STOCKFISH_PATH = environ.get('STOCKFISH_PATH', None)
+        if STOCKFISH_PATH:
+            # Use system-installed Stockfish if environment variable is set
+            _ENGINE = SimpleEngine.popen_uci(STOCKFISH_PATH)
+        else:
+            # Fall back to bundled binary if no environment variable
+            executable = f'stockfish_{"mac" if platform == "darwin" else "linux"}'
+            _ENGINE = SimpleEngine.popen_uci(f'./assets/{executable}')
+        _ENGINE.configure({"Hash": HASH_SIZE})
+
+        # Register cleanup handler
+        atexit.register(cleanup_engine)
+
+    return _ENGINE
+
+
+def cleanup_engine():
+    """Clean up the engine when the application exits."""
+    global _ENGINE
+    if _ENGINE:
+        print("Shutting down Stockfish engine...")
+        _ENGINE.quit()
+        _ENGINE = None
 
 
 def get_move_rating(board: Board, move: Move) -> int:
@@ -29,11 +51,8 @@ def get_move_rating(board: Board, move: Move) -> int:
     Rating is approximate and changes on each call.
     """
     engine = get_engine()
-    try:
-        analysis = engine.analyse(board, Limit(depth=DEPTH), root_moves=[move])
-        return analysis.get('score').pov(board.turn).score(mate_score=1000)
-    finally:
-        engine.quit()
+    analysis = engine.analyse(board, Limit(depth=DEPTH), root_moves=[move])
+    return analysis.get('score').pov(board.turn).score(mate_score=1000)
 
 
 def get_all_move_ratings(board: Board) -> Dict[str, Dict]:
@@ -216,5 +235,10 @@ if __name__ == "__main__":
         data = request.get_json(force=True).get("queryStringParameters", {})
         return all_moves_analysis_route({"queryStringParameters": data})
 
-    print("Move analysis service starting on port 8080...")
+    # Initialize engine at startup
+    get_engine()
+    print(f"Move analysis service starting on port 8080... (depth={DEPTH}, hash={HASH_SIZE}MB)")
     app.run(host="0.0.0.0", port=8080)
+
+    # Clean up resources on shutdown
+    cleanup_engine()

@@ -44,7 +44,13 @@ services:
     volumes:
       - ./assets:/app/assets
     environment:
-      - DEPTH=8
-      - HASH_SIZE=128
+      - DEPTH=6
+      - HASH_SIZE=64
       - STOCKFISH_PATH=/usr/games/stockfish
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+        reservations:
+          memory: 1g
 
