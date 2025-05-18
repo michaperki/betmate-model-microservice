@@ -10,7 +10,7 @@ move_analysis_lock = Lock()
 ROUTE_URLS = {
     "wdl": "http://wdl-container:8080/predict",
     "top-moves": "http://top-moves-container:8080/predict",
-    "move-analysis": "http://move-analysis-container:8080/predict",
+    "move-analysis": "http://move-analysis-container:8083/predict",  # Updated port to 8083
 }
 
 def create_handler(url: str, lock: Lock):
