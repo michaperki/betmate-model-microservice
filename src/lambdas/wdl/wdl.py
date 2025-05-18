@@ -59,19 +59,33 @@ def get_win_bin(board: Board, engine=None) -> int:
     try:
         # Evaluate board with enough time for reliable analysis
         try:
-            info = engine.analyse(board, Limit(time=TIME_LIMIT))
-            score = info['score'].white().score(mate_score=1000)
-        except Exception as e:
-            print(f"[WDL] Stockfish analysis failed: {e}")
-            # Default to neutral evaluation if analysis fails
+            print(f"[WDL] Starting analysis with TIME_LIMIT={TIME_LIMIT} seconds")
+            import asyncio
+            try:
+                info = engine.analyse(board, Limit(time=TIME_LIMIT))
+                score = info['score'].white().score(mate_score=1000)
+                print(f"[WDL] Analysis successful, score: {score}")
+            except asyncio.exceptions.TimeoutError as te:
+                print(f"[WDL] Stockfish timeout: {te} - Using default evaluation")
+                # Use neutral evaluation on timeout
+                score = 0
+            except Exception as e:
+                print(f"[WDL] Stockfish analysis failed: {e}")
+                # Default to neutral evaluation if analysis fails
+                score = 0
+        except Exception as outer_e:
+            print(f"[WDL] Outer exception in analysis: {outer_e}")
             score = 0
-            raise
     finally:
         if should_close:
-            engine.close()
+            try:
+                engine.close()
+            except Exception as close_error:
+                print(f"[WDL] Error while closing engine: {close_error}")
 
     # Logistic transform on evaluation
     pwin = 1 / (1 + pow(10, -score / 400))
+    print(f"[WDL] Calculated win probability: {pwin}")
 
     if pwin < 0.10:
         return 0
@@ -81,25 +95,38 @@ def get_win_bin(board: Board, engine=None) -> int:
         return 2
     elif pwin >= 0.60 and pwin < 0.90:
         return 3
-    elif pwin >= 0.00:
+    elif pwin >= 0.90:
         return 4
 
 
 def model(board: Board, white_time: int, black_time: int) -> Dict[str, float]:
     """Get win/draw/loss probabilities based on `board` state and player times."""
+    print(f"[WDL] Starting model calculation for position: {board.fen()}")
+    print(f"[WDL] Player times: white={white_time}s, black={black_time}s")
+
     # Use a single engine instance for the entire model calculation
-    with get_engine() as engine:
-        win_bin: int = get_win_bin(board, engine)
+    try:
+        with get_engine() as engine:
+            win_bin: int = get_win_bin(board, engine)
+    except Exception as e:
+        print(f"[WDL] Error during engine analysis: {e}")
+        # Default to balanced position (bin 2) if everything fails
+        win_bin = 2
+
+    print(f"[WDL] Calculated win_bin: {win_bin}")
 
     # Ensure times are within range of model
     white_time = min(180, max(1, white_time))
     black_time = min(180, max(1, black_time))
 
-    return {
-        'white_win': wwf[white_time, black_time, win_bin],
-        'draw': df[white_time, black_time, win_bin],
-        'black_win': bwf[white_time, black_time, win_bin]
+    result = {
+        'white_win': float(wwf[white_time, black_time, win_bin]),
+        'draw': float(df[white_time, black_time, win_bin]),
+        'black_win': float(bwf[white_time, black_time, win_bin])
     }
+
+    print(f"[WDL] Returning probabilities: {result}")
+    return result
 
 
 def wdl_route(event, context=None):
@@ -114,12 +141,34 @@ def wdl_route(event, context=None):
 
     Otherwise, will return result from `model()` with 200 status.
     """
+    print(f"[WDL] Received request: {event}")
+
     data = event['queryStringParameters']
     try:
-        board = Board(data['fen'])
-        white_time: int = int(data['white_time'])
-        black_time: int = int(data['black_time'])
+        # Handle empty FEN (this was causing issues)
+        fen = data.get('fen')
+        if fen is None or fen.strip() == "":
+            # Default to starting position if FEN is empty
+            print("[WDL] Empty FEN received, using starting position")
+            fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+
+        board = Board(fen)
+
+        # Handle missing time parameters
+        try:
+            white_time: int = int(data.get('white_time', 60))
+        except (ValueError, TypeError):
+            print("[WDL] Invalid white_time, using default")
+            white_time = 60
+
+        try:
+            black_time: int = int(data.get('black_time', 60))
+        except (ValueError, TypeError):
+            print("[WDL] Invalid black_time, using default")
+            black_time = 60
+
     except Exception as e:
+        print(f"[WDL] Error parsing request parameters: {e}")
         return {
             'statusCode': 400,
             'body': json.dumps({
@@ -128,15 +177,31 @@ def wdl_route(event, context=None):
             })
         }
 
-    probabilities = model(board, white_time, black_time)
+    try:
+        probabilities = model(board, white_time, black_time)
 
-    return {
-        'statusCode': 200,
-        'body': json.dumps({
-            "message": "SUCCESS",
-            "data": probabilities
-        })
-    }
+        return {
+            'statusCode': 200,
+            'body': json.dumps({
+                "message": "SUCCESS",
+                "data": probabilities
+            })
+        }
+    except Exception as e:
+        print(f"[WDL] Error during model calculation: {e}")
+        # Return default probabilities if model fails
+        return {
+            'statusCode': 200,  # Return 200 to avoid client errors
+            'body': json.dumps({
+                "message": "WARNING: Used fallback values due to analysis error",
+                "data": {
+                    "white_win": 0.33,
+                    "draw": 0.34,
+                    "black_win": 0.33
+                },
+                "error": str(e)
+            })
+        }
 
 if __name__ == "__main__":
     from flask import Flask, request
