@@ -8,7 +8,7 @@ from os import environ
 from sys import platform
 
 # Config
-TIME_LIMIT = float(environ.get('TIME_LIMIT', 0.01))  # Reduced from 0.1 to lower memory usage
+TIME_LIMIT = float(environ.get('TIME_LIMIT', 0.2))  # Increased from 0.01 to give Stockfish enough time to respond
 HASH_SIZE = int(environ.get('HASH_SIZE', 128))  # Reduced from 256 to lower memory usage
 
 def get_engine():
@@ -55,11 +55,17 @@ def get_win_bin(board: Board, engine=None) -> int:
     if engine is None:
         engine = get_engine()
         should_close = True
-    
+
     try:
-        # Evaluate board with a very short time limit to reduce memory usage
-        info = engine.analyse(board, Limit(time=TIME_LIMIT))
-        score = info['score'].white().score(mate_score=1000)
+        # Evaluate board with enough time for reliable analysis
+        try:
+            info = engine.analyse(board, Limit(time=TIME_LIMIT))
+            score = info['score'].white().score(mate_score=1000)
+        except Exception as e:
+            print(f"[WDL] Stockfish analysis failed: {e}")
+            # Default to neutral evaluation if analysis fails
+            score = 0
+            raise
     finally:
         if should_close:
             engine.close()
