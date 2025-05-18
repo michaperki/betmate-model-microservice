@@ -8,19 +8,14 @@ from os import environ
 from sys import platform
 
 # Config
-TIME_LIMIT = float(environ.get('TIME_LIMIT', 0.1))
-HASH_SIZE = int(environ.get('HASH_SIZE', 256))
+TIME_LIMIT = float(environ.get('TIME_LIMIT', 0.01))  # Reduced from 0.1 to lower memory usage
+HASH_SIZE = int(environ.get('HASH_SIZE', 128))  # Reduced from 256 to lower memory usage
 
 def get_engine():
     """Create and return a new Stockfish engine instance for each request."""
-    STOCKFISH_PATH = environ.get('STOCKFISH_PATH', None)
-    if STOCKFISH_PATH:
-        # Use system-installed Stockfish if environment variable is set
-        engine = SimpleEngine.popen_uci(STOCKFISH_PATH)
-    else:
-        # Fall back to bundled binary if no environment variable
-        executable = f'stockfish_{"mac" if platform == "darwin" else "linux"}'
-        engine = SimpleEngine.popen_uci(f'./assets/{executable}')
+    STOCKFISH_PATH = environ.get('STOCKFISH_PATH', '/usr/games/stockfish')
+    # Always prefer the system-installed Stockfish path
+    engine = SimpleEngine.popen_uci(STOCKFISH_PATH)
     engine.configure({"Hash": HASH_SIZE})
     return engine
 
@@ -33,14 +28,23 @@ with open('./assets/draw_fraction.npy', 'rb') as f:
     df: ndarray = load(f)
 
 
-def get_win_bin(board: Board) -> int:
-    """Convert `board` state to 'bin' corresponding to 'white vs. black' favorability"""
-
-    # Use a context manager to automatically close the engine
-    with get_engine() as engine:
-        # Evaluate board
+def get_win_bin(board: Board, engine=None) -> int:
+    """
+    Convert `board` state to 'bin' corresponding to 'white vs. black' favorability.
+    Uses the provided engine instance or creates a temporary one if None.
+    """
+    should_close = False
+    if engine is None:
+        engine = get_engine()
+        should_close = True
+    
+    try:
+        # Evaluate board with a very short time limit to reduce memory usage
         info = engine.analyse(board, Limit(time=TIME_LIMIT))
         score = info['score'].white().score(mate_score=1000)
+    finally:
+        if should_close:
+            engine.close()
 
     # Logistic transform on evaluation
     pwin = 1 / (1 + pow(10, -score / 400))
@@ -59,7 +63,9 @@ def get_win_bin(board: Board) -> int:
 
 def model(board: Board, white_time: int, black_time: int) -> Dict[str, float]:
     """Get win/draw/loss probabilities based on `board` state and player times."""
-    win_bin: int = get_win_bin(board)
+    # Use a single engine instance for the entire model calculation
+    with get_engine() as engine:
+        win_bin: int = get_win_bin(board, engine)
 
     # Ensure times are within range of model
     white_time = min(180, max(1, white_time))
@@ -110,11 +116,25 @@ def wdl_route(event, context=None):
 
 if __name__ == "__main__":
     from flask import Flask, request
+    import threading
 
     app = Flask(__name__)
+    
+    # Add a lock to prevent multiple concurrent analyses
+    # This helps avoid resource contention and engine crashes
+    stockfish_lock = threading.Lock()
 
     @app.route("/predict", methods=["POST"])
     def route():
-        return wdl_route({"queryStringParameters": request.get_json().get("queryStringParameters", {})})
+        data = request.get_json(force=True).get("queryStringParameters", {})
+        print("[wdl] Received request - acquiring lock")
+        
+        # Use lock to ensure only one Stockfish instance runs at a time
+        with stockfish_lock:
+            print("[wdl] Lock acquired, processing request")
+            result = wdl_route({"queryStringParameters": data})
+            print("[wdl] Request processed, releasing lock")
+            return result
 
-    app.run(host="0.0.0.0", port=8080)
+    # Limit to only 1 worker thread to prevent concurrent Stockfish instances
+    app.run(host="0.0.0.0", port=8080, threaded=False)
