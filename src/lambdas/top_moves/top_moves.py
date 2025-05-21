@@ -1,31 +1,47 @@
-from typing import List
+from typing import List, Dict, Optional
 from chess import Board, Move
 from chess.engine import SimpleEngine, Limit
 import json
 from os import environ
 from sys import platform
+import atexit
 
 # Config
 DEPTH = int(environ.get('DEPTH', 6))  # Reduced from 10 to lower memory usage
 HASH_SIZE = int(environ.get('HASH_SIZE', 128))  # Reduced from 256 to lower memory usage
 
+# Global engine instance (Singleton pattern)
+_ENGINE: Optional[SimpleEngine] = None
+
 def get_engine():
-    """
-    Create and return a new Stockfish engine instance.
-    This function will use the system-installed Stockfish if STOCKFISH_PATH is set,
-    otherwise it falls back to the bundled binary.
-    The returned engine supports context manager protocol for automatic cleanup.
-    """
-    STOCKFISH_PATH = environ.get('STOCKFISH_PATH', None)
-    if STOCKFISH_PATH:
-        # Use system-installed Stockfish if environment variable is set
-        engine = SimpleEngine.popen_uci(STOCKFISH_PATH)
-    else:
-        # Fall back to bundled binary if no environment variable
-        executable = f'stockfish_{"mac" if platform == "darwin" else "linux"}'
-        engine = SimpleEngine.popen_uci(f'./assets/{executable}')
-    engine.configure({"Hash": HASH_SIZE})
-    return engine
+    """Return or create a Stockfish engine instance (singleton pattern)."""
+    global _ENGINE
+
+    if _ENGINE is None:
+        print("Initializing Stockfish engine...")
+        STOCKFISH_PATH = environ.get('STOCKFISH_PATH', None)
+        if STOCKFISH_PATH:
+            # Use system-installed Stockfish if environment variable is set
+            _ENGINE = SimpleEngine.popen_uci(STOCKFISH_PATH)
+        else:
+            # Fall back to bundled binary if no environment variable
+            executable = f'stockfish_{"mac" if platform == "darwin" else "linux"}'
+            _ENGINE = SimpleEngine.popen_uci(f'./assets/{executable}')
+        _ENGINE.configure({"Hash": HASH_SIZE})
+
+        # Register cleanup handler
+        atexit.register(cleanup_engine)
+
+    return _ENGINE
+
+
+def cleanup_engine():
+    """Clean up the engine when the application exits."""
+    global _ENGINE
+    if _ENGINE:
+        print("Shutting down Stockfish engine...")
+        _ENGINE.quit()
+        _ENGINE = None
 
 
 def get_move_rating(board: Board, move: Move, engine=None) -> int:
@@ -35,12 +51,10 @@ def get_move_rating(board: Board, move: Move, engine=None) -> int:
     Uses the provided engine or creates a new one if not provided.
     """
     if engine is None:
-        with get_engine() as temp_engine:
-            analysis = temp_engine.analyse(board, Limit(depth=DEPTH), root_moves=[move])
-            return analysis.get('score').pov(board.turn).score(mate_score=1000)
-    else:
-        analysis = engine.analyse(board, Limit(depth=DEPTH), root_moves=[move])
-        return analysis.get('score').pov(board.turn).score(mate_score=1000)
+        engine = get_engine()
+
+    analysis = engine.analyse(board, Limit(depth=DEPTH), root_moves=[move])
+    return analysis.get('score').pov(board.turn).score(mate_score=1000)
 
 
 def model(board: Board, n: int) -> List[str]:
@@ -50,15 +64,15 @@ def model(board: Board, n: int) -> List[str]:
     """
     move_scores = []
     # Use a single engine instance for all moves to reduce memory usage
-    with get_engine() as engine:
-        for move in board.legal_moves:
-            try:
-                analysis = engine.analyse(board, Limit(depth=DEPTH), root_moves=[move])
-                score = analysis.get('score').pov(board.turn).score(mate_score=1000)
-                move_scores.append((board.san(move), score))
-            except Exception as e:
-                print(f"Error analyzing move {move}: {e}")
-                move_scores.append((board.san(move), float('-inf')))  # Worst score fallback
+    engine = get_engine()
+    for move in board.legal_moves:
+        try:
+            analysis = engine.analyse(board, Limit(depth=DEPTH), root_moves=[move])
+            score = analysis.get('score').pov(board.turn).score(mate_score=1000)
+            move_scores.append((board.san(move), score))
+        except Exception as e:
+            print(f"Error analyzing move {move}: {e}")
+            move_scores.append((board.san(move), float('-inf')))  # Worst score fallback
 
     return [move for move, _ in sorted(move_scores, key=lambda x: -x[1])[:n]]
 
@@ -107,27 +121,27 @@ def top_moves_route(event, context=None):
         })
     }
 
-if __name__ == "__main__":
+
+def handler(event, context):
+    """AWS Lambda handler function"""
+    return top_moves_route(event, context)
+
+
+# --- Local‑dev server (optional) ---------------------------
+if __name__ == "__main__" and environ.get("LOCAL_DEV") == "true":
     from flask import Flask, request
     import threading
 
-    # Add a simple lock to prevent multiple concurrent analyses
-    # This helps avoid resource contention and engine crashes
-    stockfish_lock = threading.Lock()
-
+    lock = threading.Lock()
     app = Flask(__name__)
 
     @app.route("/predict", methods=["POST"])
-    def route():
+    def predict_route():
         data = request.get_json(force=True).get("queryStringParameters", {})
-        print("[top-moves] Received request - acquiring lock")
+        with lock:
+            return top_moves_route({"queryStringParameters": data})
 
-        # Use lock to ensure only one Stockfish instance runs at a time
-        with stockfish_lock:
-            print("[top-moves] Lock acquired, processing request")
-            result = top_moves_route({"queryStringParameters": data})
-            print("[top-moves] Request processed, releasing lock")
-            return result
-
-    # Limit to only 1 worker thread to prevent concurrent Stockfish instances
+    # Warm the engine for faster local calls
+    get_engine()
+    print("[top-moves] Local dev server on :8080 (depth=%d)" % DEPTH)
     app.run(host="0.0.0.0", port=8080, threaded=False)

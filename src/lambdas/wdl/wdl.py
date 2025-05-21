@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, Optional
 from chess import Board
 from chess.engine import SimpleEngine, Limit
 from numpy import load, ndarray
@@ -6,44 +6,78 @@ from math import pow
 import json
 from os import environ
 from sys import platform
+import atexit
+import os
 
 # Config
 TIME_LIMIT = float(environ.get('TIME_LIMIT', 0.2))  # Increased from 0.01 to give Stockfish enough time to respond
 HASH_SIZE = int(environ.get('HASH_SIZE', 128))  # Reduced from 256 to lower memory usage
 
+# Global engine instance (Singleton pattern)
+_ENGINE: Optional[SimpleEngine] = None
+
 def get_engine():
-    """Create and return a new Stockfish engine instance for each request."""
-    # Try primary path (system-installed Stockfish)
-    STOCKFISH_PATH = environ.get('STOCKFISH_PATH', '/usr/games/stockfish')
+    """Return or create a Stockfish engine instance (singleton pattern)."""
+    global _ENGINE
 
-    try:
-        engine = SimpleEngine.popen_uci(STOCKFISH_PATH)
-        print(f"Successfully initialized Stockfish from {STOCKFISH_PATH}")
-    except Exception as e:
-        # Fallback to bundled binary if system path fails
-        print(f"Failed to load Stockfish from {STOCKFISH_PATH}: {e}")
-        print("Trying bundled binary as fallback...")
-        try:
-            engine = SimpleEngine.popen_uci("./assets/stockfish_linux")
-            print("Successfully initialized Stockfish from bundled binary")
-        except Exception as e2:
-            # One final attempt with absolute path
-            import os
-            fallback_path = os.path.join(os.getcwd(), "assets", "stockfish_linux")
-            print(f"Trying absolute path: {fallback_path}")
-            engine = SimpleEngine.popen_uci(fallback_path)
-            print(f"Successfully initialized Stockfish from {fallback_path}")
+    if _ENGINE is None:
+        print("Initializing Stockfish engine...")
+        STOCKFISH_PATH = environ.get('STOCKFISH_PATH', None)
+        if STOCKFISH_PATH and os.path.exists(STOCKFISH_PATH):
+            # Use system-installed Stockfish if environment variable is set
+            print(f"Using Stockfish from configured path: {STOCKFISH_PATH}")
+            _ENGINE = SimpleEngine.popen_uci(STOCKFISH_PATH)
+        else:
+            # Fall back to bundled binary if no environment variable
+            try:
+                executable = f'stockfish_{"mac" if platform == "darwin" else "linux"}'
+                bundled_path = f'./assets/{executable}'
+                print(f"Trying bundled Stockfish: {bundled_path}")
+                _ENGINE = SimpleEngine.popen_uci(bundled_path)
+                print("Successfully initialized Stockfish from bundled binary")
+            except Exception as e:
+                # One final attempt with absolute path
+                fallback_path = os.path.join(os.getcwd(), "assets", executable)
+                print(f"Trying absolute path: {fallback_path}")
+                _ENGINE = SimpleEngine.popen_uci(fallback_path)
+                print(f"Successfully initialized Stockfish from {fallback_path}")
 
-    engine.configure({"Hash": HASH_SIZE})
-    return engine
+        _ENGINE.configure({"Hash": HASH_SIZE})
 
-# Load model
-with open('./assets/black_win_fraction.npy', 'rb') as f:
-    bwf: ndarray = load(f)
-with open('./assets/white_win_fraction.npy', 'rb') as f:
-    wwf: ndarray = load(f)
-with open('./assets/draw_fraction.npy', 'rb') as f:
-    df: ndarray = load(f)
+        # Register cleanup handler
+        atexit.register(cleanup_engine)
+
+    return _ENGINE
+
+
+def cleanup_engine():
+    """Clean up the engine when the application exits."""
+    global _ENGINE
+    if _ENGINE:
+        print("Shutting down Stockfish engine...")
+        _ENGINE.quit()
+        _ENGINE = None
+
+
+# Load model data at module level for Lambda cold start
+print("Loading model data...")
+try:
+    with open('./assets/black_win_fraction.npy', 'rb') as f:
+        bwf: ndarray = load(f)
+    with open('./assets/white_win_fraction.npy', 'rb') as f:
+        wwf: ndarray = load(f)
+    with open('./assets/draw_fraction.npy', 'rb') as f:
+        df: ndarray = load(f)
+    print("Successfully loaded model data")
+except Exception as e:
+    print(f"Error loading model data: {e}")
+    # Create dummy model data for fallback
+    import numpy as np
+    print("Creating fallback model data")
+    shape = (181, 181, 5)  # Max time 180 seconds + 1 for indexing, 5 bins
+    bwf = np.full(shape, 0.33)
+    wwf = np.full(shape, 0.33)
+    df = np.full(shape, 0.34)
 
 
 def get_win_bin(board: Board, engine=None) -> int:
@@ -51,10 +85,8 @@ def get_win_bin(board: Board, engine=None) -> int:
     Convert `board` state to 'bin' corresponding to 'white vs. black' favorability.
     Uses the provided engine instance or creates a temporary one if None.
     """
-    should_close = False
     if engine is None:
         engine = get_engine()
-        should_close = True
 
     try:
         # Evaluate board with enough time for reliable analysis
@@ -76,12 +108,9 @@ def get_win_bin(board: Board, engine=None) -> int:
         except Exception as outer_e:
             print(f"[WDL] Outer exception in analysis: {outer_e}")
             score = 0
-    finally:
-        if should_close:
-            try:
-                engine.close()
-            except Exception as close_error:
-                print(f"[WDL] Error while closing engine: {close_error}")
+    except Exception as e:
+        print(f"[WDL] Error during engine handling: {e}")
+        score = 0
 
     # Logistic transform on evaluation
     pwin = 1 / (1 + pow(10, -score / 400))
@@ -106,8 +135,7 @@ def model(board: Board, white_time: int, black_time: int) -> Dict[str, float]:
 
     # Use a single engine instance for the entire model calculation
     try:
-        with get_engine() as engine:
-            win_bin: int = get_win_bin(board, engine)
+        win_bin: int = get_win_bin(board, get_engine())
     except Exception as e:
         print(f"[WDL] Error during engine analysis: {e}")
         # Default to balanced position (bin 2) if everything fails
@@ -203,27 +231,27 @@ def wdl_route(event, context=None):
             })
         }
 
-if __name__ == "__main__":
+
+def handler(event, context):
+    """AWS Lambda handler function"""
+    return wdl_route(event, context)
+
+
+# --- Local‑dev server (optional) ---------------------------
+if __name__ == "__main__" and environ.get("LOCAL_DEV") == "true":
     from flask import Flask, request
     import threading
 
+    lock = threading.Lock()
     app = Flask(__name__)
-    
-    # Add a lock to prevent multiple concurrent analyses
-    # This helps avoid resource contention and engine crashes
-    stockfish_lock = threading.Lock()
 
     @app.route("/predict", methods=["POST"])
-    def route():
+    def predict_route():
         data = request.get_json(force=True).get("queryStringParameters", {})
-        print("[wdl] Received request - acquiring lock")
-        
-        # Use lock to ensure only one Stockfish instance runs at a time
-        with stockfish_lock:
-            print("[wdl] Lock acquired, processing request")
-            result = wdl_route({"queryStringParameters": data})
-            print("[wdl] Request processed, releasing lock")
-            return result
+        with lock:
+            return wdl_route({"queryStringParameters": data})
 
-    # Limit to only 1 worker thread to prevent concurrent Stockfish instances
+    # Warm the engine for faster local calls
+    get_engine()
+    print("[wdl] Local dev server on :8080")
     app.run(host="0.0.0.0", port=8080, threaded=False)

@@ -1,36 +1,24 @@
 
-FROM python:3.10-slim
+FROM public.ecr.aws/lambda/python:3.8
+RUN yum update -y && yum install -y unzip
 
-# Install stockfish and development tools
-RUN apt-get update && apt-get install -y gcc python3-dev stockfish && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+WORKDIR /var/task
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt --target .
 
-WORKDIR /app
-COPY . .
+# Copy Python code
+COPY wdl.py .
 
-RUN pip install --upgrade pip \
- && pip install -r requirements.txt
+# Copy assets
+COPY assets/stockfish_linux assets/stockfish_linux
+COPY assets/black_win_fraction.npy assets/black_win_fraction.npy
+COPY assets/white_win_fraction.npy assets/white_win_fraction.npy
+COPY assets/draw_fraction.npy assets/draw_fraction.npy
 
-# Ensure both stockfish binaries are executable
-RUN chmod +x ./assets/stockfish_linux && \
-    echo "Checking stockfish installation..." && \
-    ls -la /usr/games/stockfish || echo "System stockfish not found at expected location" && \
-    ls -la ./assets/stockfish_linux
+# Ensure binary is executable
+RUN chmod +x assets/stockfish_linux
 
-# Try symlink if system stockfish is missing
-RUN if [ ! -f "/usr/games/stockfish" ]; then \
-      mkdir -p /usr/games && \
-      ln -s $(pwd)/assets/stockfish_linux /usr/games/stockfish && \
-      chmod +x /usr/games/stockfish; \
-    fi
+# Set environment variable for Stockfish path
+ENV STOCKFISH_PATH=/var/task/assets/stockfish_linux
 
-# Set environment variable for Stockfish path with fallback
-ENV STOCKFISH_PATH=/usr/games/stockfish
-
-# Create a simple test to verify installation
-RUN echo "#!/bin/bash\necho 'Testing stockfish installation'\nif [ -f /usr/games/stockfish ]; then echo '/usr/games/stockfish exists'; else echo '/usr/games/stockfish missing'; fi" > /test-stockfish.sh && \
-    chmod +x /test-stockfish.sh && \
-    /test-stockfish.sh
-
-CMD ["python", "wdl.py"]
+CMD ["wdl.handler"]

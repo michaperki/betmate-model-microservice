@@ -1,4 +1,8 @@
-chess==1.5.0
-numpy==1.24.4
-flask
-
+python-chess==1.999
+numpy==1.23.5
+flask==2.0.1
+werkzeug==2.0.2
+jinja2==3.0.3
+itsdangerous==2.0.1
+click==8.0.4
+psutil==5.9.5

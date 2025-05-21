@@ -1,25 +1,10 @@
-FROM python:3.8-slim
-
-WORKDIR /app
-
-# Install dependencies with exact versions to avoid compatibility issues
+FROM public.ecr.aws/lambda/python:3.8
+RUN yum update -y && yum install -y unzip
+WORKDIR /var/task
 COPY requirements.txt .
-RUN apt-get update && apt-get install -y stockfish && \
-    rm -rf /var/lib/apt/lists/* && \
-    pip install --no-cache-dir -r requirements.txt
-
-# Create assets directory
-RUN mkdir -p /app/assets
-
-# Copy function code and entrypoint
+RUN pip install --no-cache-dir -r requirements.txt --target .
 COPY move_analysis.py .
-COPY entrypoint.sh .
-RUN chmod +x entrypoint.sh
-
-# Set environment variable for Stockfish path
-ENV STOCKFISH_PATH=/usr/games/stockfish
-
-# Expose port
-EXPOSE 8080
-
-CMD ["./entrypoint.sh"]
+COPY assets/stockfish_linux assets/stockfish_linux
+RUN chmod +x assets/stockfish_linux
+ENV STOCKFISH_PATH=/var/task/assets/stockfish_linux
+CMD ["move_analysis.handler"]

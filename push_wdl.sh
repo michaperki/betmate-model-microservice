@@ -1,5 +1,17 @@
-#!/bin/bash
-aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin 772653926123.dkr.ecr.us-west-2.amazonaws.com
-docker build -t wdl-image ./src/lambdas/wdl/
-docker tag wdl-image:latest 772653926123.dkr.ecr.us-west-2.amazonaws.com/wdl-image:latest
-docker push 772653926123.dkr.ecr.us-west-2.amazonaws.com/wdl-image:latest
+#!/usr/bin/env bash
+set -euo pipefail
+
+IMAGE=wdl
+DIR=src/lambdas/wdl
+
+AWS_REGION=${AWS_REGION:-us-east-1}
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+REPO_URI="$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$IMAGE:latest"
+
+# Build & push
+docker build -t $IMAGE "$DIR"
+aws ecr get-login-password --region $AWS_REGION \
+| docker login --username AWS --password-stdin "$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
+docker tag $IMAGE:latest "$REPO_URI"
+docker push "$REPO_URI"
+echo "Pushed $REPO_URI"

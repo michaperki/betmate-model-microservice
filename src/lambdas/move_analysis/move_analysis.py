@@ -213,32 +213,24 @@ def all_moves_analysis_route(event, context=None):
     }
 
 
-if __name__ == "__main__":
-    from flask import Flask, request
+def handler(event, context):
+    return move_analysis_route(event, context)
 
+# --- Local‑dev server (optional) ---------------------------
+if __name__ == "__main__" and environ.get("LOCAL_DEV") == "true":
+    from flask import Flask, request
+    import threading
+
+    lock = threading.Lock()
     app = Flask(__name__)
 
-    # Add the main predict route that the router expects
     @app.route("/predict", methods=["POST"])
     def predict_route():
         data = request.get_json(force=True).get("queryStringParameters", {})
-        return move_analysis_route({"queryStringParameters": data})
+        with lock:
+            return move_analysis_route({"queryStringParameters": data})
 
-    # Keep the original routes for direct access
-    @app.route("/analyze-move", methods=["POST"])
-    def analyze_move_route():
-        data = request.get_json(force=True).get("queryStringParameters", {})
-        return move_analysis_route({"queryStringParameters": data})
-
-    @app.route("/analyze-all-moves", methods=["POST"])
-    def analyze_all_moves_route():
-        data = request.get_json(force=True).get("queryStringParameters", {})
-        return all_moves_analysis_route({"queryStringParameters": data})
-
-    # Initialize engine at startup
+    # Warm the engine for faster local calls
     get_engine()
-    print(f"Move analysis service starting on port 8080... (depth={DEPTH}, hash={HASH_SIZE}MB)")
-    app.run(host="0.0.0.0", port=8080)
-
-    # Clean up resources on shutdown
-    cleanup_engine()
+    print("[move-analysis] Local dev server on :8080 (depth=%d)" % DEPTH)
+    app.run(host="0.0.0.0", port=8080, threaded=False)
