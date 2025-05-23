@@ -8,6 +8,7 @@ from os import environ
 from sys import platform
 import atexit
 import os
+from logger import log_event
 
 # Config
 TIME_LIMIT = float(environ.get('TIME_LIMIT', 0.2))  # Increased from 0.01 to give Stockfish enough time to respond
@@ -21,28 +22,24 @@ def get_engine():
     global _ENGINE
 
     if _ENGINE is None:
-        print("Initializing Stockfish engine...")
+        log_event('debug', 'stockfish_init_start')
         STOCKFISH_PATH = environ.get('STOCKFISH_PATH', None)
         if STOCKFISH_PATH and os.path.exists(STOCKFISH_PATH):
-            # Use system-installed Stockfish if environment variable is set
-            print(f"Using Stockfish from configured path: {STOCKFISH_PATH}")
+            log_event('debug', 'stockfish_init_configured', path=STOCKFISH_PATH)
             _ENGINE = SimpleEngine.popen_uci(STOCKFISH_PATH)
         else:
-            # Fall back to bundled binary if no environment variable
             try:
                 executable = f'stockfish_{"mac" if platform == "darwin" else "linux"}'
                 bundled_path = f'./assets/{executable}'
-                print(f"Trying bundled Stockfish: {bundled_path}")
+                log_event('debug', 'stockfish_init_bundled', path=bundled_path)
                 _ENGINE = SimpleEngine.popen_uci(bundled_path)
-                print("Successfully initialized Stockfish from bundled binary")
             except Exception as e:
-                # One final attempt with absolute path
                 fallback_path = os.path.join(os.getcwd(), "assets", executable)
-                print(f"Trying absolute path: {fallback_path}")
+                log_event('debug', 'stockfish_init_fallback', path=fallback_path)
                 _ENGINE = SimpleEngine.popen_uci(fallback_path)
-                print(f"Successfully initialized Stockfish from {fallback_path}")
 
         _ENGINE.configure({"Hash": HASH_SIZE})
+        log_event('info', 'stockfish_init_success', hash_size=HASH_SIZE)
 
         # Register cleanup handler
         atexit.register(cleanup_engine)
