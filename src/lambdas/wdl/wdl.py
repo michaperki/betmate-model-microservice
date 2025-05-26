@@ -40,10 +40,12 @@ def get_engine():
 
         _ENGINE.configure({"Hash": HASH_SIZE})
         log_event('info', 'stockfish_init_success', hash_size=HASH_SIZE)
+        print(f"Successfully initialized Stockfish from {STOCKFISH_PATH or bundled_path}")
 
         # Register cleanup handler
         atexit.register(cleanup_engine)
 
+    # Engine is already cached, no need to log anything
     return _ENGINE
 
 
@@ -57,7 +59,6 @@ def cleanup_engine():
 
 
 # Load model data at module level for Lambda cold start
-print("Loading model data...")
 try:
     with open('./assets/black_win_fraction.npy', 'rb') as f:
         bwf: ndarray = load(f)
@@ -65,12 +66,12 @@ try:
         wwf: ndarray = load(f)
     with open('./assets/draw_fraction.npy', 'rb') as f:
         df: ndarray = load(f)
-    print("Successfully loaded model data")
+    log_event('info', 'model_data_loaded')
 except Exception as e:
-    print(f"Error loading model data: {e}")
+    log_event('error', 'model_data_load_failed', error=str(e))
     # Create dummy model data for fallback
     import numpy as np
-    print("Creating fallback model data")
+    log_event('warning', 'using_fallback_model_data')
     shape = (181, 181, 5)  # Max time 180 seconds + 1 for indexing, 5 bins
     bwf = np.full(shape, 0.33)
     wwf = np.full(shape, 0.33)
@@ -88,30 +89,29 @@ def get_win_bin(board: Board, engine=None) -> int:
     try:
         # Evaluate board with enough time for reliable analysis
         try:
-            print(f"[WDL] Starting analysis with TIME_LIMIT={TIME_LIMIT} seconds")
             import asyncio
             try:
                 info = engine.analyse(board, Limit(time=TIME_LIMIT))
                 score = info['score'].white().score(mate_score=1000)
-                print(f"[WDL] Analysis successful, score: {score}")
+                log_event('debug', 'stockfish_analysis_success', score=score)
             except asyncio.exceptions.TimeoutError as te:
-                print(f"[WDL] Stockfish timeout: {te} - Using default evaluation")
+                log_event('warning', 'stockfish_timeout', error=str(te))
                 # Use neutral evaluation on timeout
                 score = 0
             except Exception as e:
-                print(f"[WDL] Stockfish analysis failed: {e}")
+                log_event('warning', 'stockfish_analysis_failed', error=str(e))
                 # Default to neutral evaluation if analysis fails
                 score = 0
         except Exception as outer_e:
-            print(f"[WDL] Outer exception in analysis: {outer_e}")
+            log_event('error', 'stockfish_outer_exception', error=str(outer_e))
             score = 0
     except Exception as e:
-        print(f"[WDL] Error during engine handling: {e}")
+        log_event('error', 'engine_handling_error', error=str(e))
         score = 0
 
     # Logistic transform on evaluation
     pwin = 1 / (1 + pow(10, -score / 400))
-    print(f"[WDL] Calculated win probability: {pwin}")
+    log_event('debug', 'win_probability_calculated', pwin=pwin)
 
     if pwin < 0.10:
         return 0
@@ -127,18 +127,17 @@ def get_win_bin(board: Board, engine=None) -> int:
 
 def model(board: Board, white_time: int, black_time: int) -> Dict[str, float]:
     """Get win/draw/loss probabilities based on `board` state and player times."""
-    print(f"[WDL] Starting model calculation for position: {board.fen()}")
-    print(f"[WDL] Player times: white={white_time}s, black={black_time}s")
+    log_event('debug', 'model_calculation_start', fen=board.fen(), white_time=white_time, black_time=black_time)
 
     # Use a single engine instance for the entire model calculation
     try:
         win_bin: int = get_win_bin(board, get_engine())
     except Exception as e:
-        print(f"[WDL] Error during engine analysis: {e}")
+        log_event('error', 'engine_analysis_error', error=str(e))
         # Default to balanced position (bin 2) if everything fails
         win_bin = 2
 
-    print(f"[WDL] Calculated win_bin: {win_bin}")
+    log_event('debug', 'win_bin_calculated', win_bin=win_bin)
 
     # Ensure times are within range of model
     white_time = min(180, max(1, white_time))
@@ -150,7 +149,7 @@ def model(board: Board, white_time: int, black_time: int) -> Dict[str, float]:
         'black_win': float(bwf[white_time, black_time, win_bin])
     }
 
-    print(f"[WDL] Returning probabilities: {result}")
+    log_event('info', 'model_calculation_complete', probabilities=result)
     return result
 
 
@@ -166,7 +165,7 @@ def wdl_route(event, context=None):
 
     Otherwise, will return result from `model()` with 200 status.
     """
-    print(f"[WDL] Received request: {event}")
+    log_event('debug', 'wdl_request_received')
 
     data = event['queryStringParameters']
     try:
@@ -174,7 +173,7 @@ def wdl_route(event, context=None):
         fen = data.get('fen')
         if fen is None or fen.strip() == "":
             # Default to starting position if FEN is empty
-            print("[WDL] Empty FEN received, using starting position")
+            log_event('warning', 'empty_fen_using_default')
             fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
         board = Board(fen)
@@ -183,17 +182,17 @@ def wdl_route(event, context=None):
         try:
             white_time: int = int(data.get('white_time', 60))
         except (ValueError, TypeError):
-            print("[WDL] Invalid white_time, using default")
+            log_event('warning', 'invalid_white_time_using_default')
             white_time = 60
 
         try:
             black_time: int = int(data.get('black_time', 60))
         except (ValueError, TypeError):
-            print("[WDL] Invalid black_time, using default")
+            log_event('warning', 'invalid_black_time_using_default')
             black_time = 60
 
     except Exception as e:
-        print(f"[WDL] Error parsing request parameters: {e}")
+        log_event('error', 'request_parsing_error', error=str(e))
         return {
             'statusCode': 400,
             'body': json.dumps({
@@ -213,7 +212,7 @@ def wdl_route(event, context=None):
             })
         }
     except Exception as e:
-        print(f"[WDL] Error during model calculation: {e}")
+        log_event('error', 'model_calculation_failed', error=str(e))
         # Return default probabilities if model fails
         return {
             'statusCode': 200,  # Return 200 to avoid client errors
@@ -250,5 +249,5 @@ if __name__ == "__main__" and environ.get("LOCAL_DEV") == "true":
 
     # Warm the engine for faster local calls
     get_engine()
-    print("[wdl] Local dev server on :8080")
+    log_event('info', 'local_dev_server_starting', port=8080)
     app.run(host="0.0.0.0", port=8080, threaded=False)

@@ -1,6 +1,4 @@
 
-
-version: '3'
 services:
   router:
     image: redirect-server-image
@@ -22,9 +20,12 @@ services:
     volumes:
       - ./assets:/app/assets
     environment:
+      - LOCAL_DEV=true
       - TIME_LIMIT=1.0
       - HASH_SIZE=128
-      - STOCKFISH_PATH=/usr/games/stockfish
+      - STOCKFISH_PATH=/var/task/assets/stockfish_linux
+    entrypoint: []
+    command: ["python", "wdl.py"]
 
   top-moves-container:
     image: top-moves-image
@@ -32,9 +33,12 @@ services:
     ports:
       - "8082:8080"
     environment:
+      - LOCAL_DEV=true
       - DEPTH=6
       - HASH_SIZE=128
-      - STOCKFISH_PATH=/usr/games/stockfish
+      - STOCKFISH_PATH=/var/task/assets/stockfish_linux
+    entrypoint: []
+    command: ["python", "top_moves.py"]
 
   move-analysis-container:
     image: move-analysis-image
@@ -44,9 +48,12 @@ services:
     volumes:
       - ./assets:/app/assets
     environment:
+      - LOCAL_DEV=true
       - DEPTH=6
       - HASH_SIZE=64
-      - STOCKFISH_PATH=/usr/games/stockfish
+      - STOCKFISH_PATH=/var/task/assets/stockfish_linux
+    entrypoint: []
+    command: ["python", "move_analysis.py"]
     deploy:
       resources:
         limits:

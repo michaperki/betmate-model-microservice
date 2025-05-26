@@ -8,6 +8,7 @@ RUN pip install --no-cache-dir -r requirements.txt --target .
 
 # Copy Python code
 COPY wdl.py .
+COPY logger.py .
 
 # Copy assets
 COPY assets/stockfish_linux assets/stockfish_linux
