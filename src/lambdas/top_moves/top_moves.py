@@ -57,10 +57,11 @@ def get_move_rating(board: Board, move: Move, engine=None) -> int:
     return analysis.get('score').pov(board.turn).score(mate_score=1000)
 
 
-def model(board: Board, n: int) -> List[str]:
+def model(board: Board, n: int) -> List[Dict]:
     """
-    Return top `n` moves on `board` in SAN notation.
+    Return top `n` moves on `board` with analysis data.
     Uses a single engine instance for all move analysis to prevent memory issues.
+    Returns list of dictionaries with move, score, percentile, and is_best_move.
     """
     move_scores = []
     # Use a single engine instance for all moves to reduce memory usage
@@ -74,7 +75,33 @@ def model(board: Board, n: int) -> List[str]:
             print(f"Error analyzing move {move}: {e}")
             move_scores.append((board.san(move), float('-inf')))  # Worst score fallback
 
-    return [move for move, _ in sorted(move_scores, key=lambda x: -x[1])[:n]]
+    # Sort moves by score (best first)
+    sorted_moves = sorted(move_scores, key=lambda x: -x[1])[:n]
+
+    if not sorted_moves:
+        return []
+
+    # Calculate percentiles relative to the returned moves
+    best_score = sorted_moves[0][1]
+    worst_score = sorted_moves[-1][1] if len(sorted_moves) > 1 else best_score
+    score_range = max(1, best_score - worst_score)  # Avoid division by zero
+
+    result = []
+    for i, (move, score) in enumerate(sorted_moves):
+        # Calculate percentile (100 for best move, scaled down for others)
+        if score_range == 1:  # All moves have same score
+            percentile = 100
+        else:
+            percentile = max(0, min(100, int(((score - worst_score) / score_range) * 100)))
+
+        result.append({
+            "move": move,
+            "score": score,
+            "percentile": percentile,
+            "is_best_move": (i == 0)
+        })
+
+    return result
 
 
 def top_moves_route(event, context=None):
@@ -87,12 +114,17 @@ def top_moves_route(event, context=None):
     - `n` is not provided, can't be cast to int, or is <=0
 
     Otherwise, will return result from `model()` with 200 status.
+
+    Parameters:
+    - enhanced: if 'true', returns detailed analysis data; otherwise returns just move strings
     """
     data = event['queryStringParameters']
     print("Received request:", data)
     try:
         board = Board(data['fen'])
         n: int = int(data['n'])
+        # Check if enhanced format is requested (default to false for backward compatibility)
+        enhanced = data.get('enhanced', 'false').lower() == 'true'
     except Exception as e:
         return {
             'statusCode': 400,
@@ -111,13 +143,23 @@ def top_moves_route(event, context=None):
             })
         }
 
-    top_moves = model(board, n)
+    top_moves_data = model(board, n)
+
+    # Return format based on enhanced parameter
+    if enhanced:
+        # Return enhanced format with analysis data
+        response_data = top_moves_data
+        print(f"Enhanced response: {len(top_moves_data)} moves with analysis")
+    else:
+        # Return legacy format (just move strings) for backward compatibility
+        response_data = [move_data['move'] for move_data in top_moves_data]
+        print(f"Legacy response: {len(response_data)} move strings")
 
     return {
         'statusCode': 200,
         'body': json.dumps({
             "message": "SUCCESS",
-            "data": top_moves
+            "data": response_data
         })
     }
 
