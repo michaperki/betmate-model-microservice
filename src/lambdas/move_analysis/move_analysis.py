@@ -6,7 +6,21 @@ from os import environ
 from sys import platform
 import atexit
 import os
-from logger import log_event
+import sys
+
+# Add the parent directory to sys.path to import the shared axiom_logger
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+try:
+    from axiom_logger import log_event, generate_trace_id
+except ImportError:
+    # Fall back to local logger if axiom_logger is not available
+    from logger import log_event
+
+    def generate_trace_id():
+        """Generate a random trace ID for request correlation."""
+        import random
+        import string
+        return ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
 
 # Config
 DEPTH = int(environ.get('DEPTH', 6))  # Lower default depth to reduce memory usage
