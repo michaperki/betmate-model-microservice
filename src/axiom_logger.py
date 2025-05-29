@@ -81,19 +81,24 @@ def get_logger(service_name="microservice"):
         console_handler.setFormatter(formatter)
         _logger.addHandler(console_handler)
         
-        # Add Axiom handler if API key is available
+        # Add Axiom handler if API key is available and in production or explicitly enabled
         axiom_api_key = os.environ.get('AXIOM_API_KEY')
-        if axiom_api_key:
+        env = os.environ.get('NODE_ENV', 'development')
+        axiom_enabled = os.environ.get('ENABLE_AXIOM_LOGGING', 'false').lower() == 'true'
+
+        if axiom_api_key and (env == 'production' or axiom_enabled):
             try:
                 axiom_handler = AxiomHandler(token=axiom_api_key)
                 axiom_handler.setFormatter(formatter)
                 _logger.addHandler(axiom_handler)
                 _axiom_enabled = True
-                print(f"Axiom logging initialized for service: {service_name}")
+                print(f"Axiom logging initialized for service: {service_name} in {env} environment")
             except Exception as e:
                 print(f"Failed to initialize Axiom logging: {str(e)}")
-        else:
+        elif not axiom_api_key:
             print("Axiom logging disabled: No AXIOM_API_KEY found in environment")
+        else:
+            print(f"Axiom logging disabled in {env} environment (set ENABLE_AXIOM_LOGGING=true to override)")
         
         _logger.propagate = False
     
