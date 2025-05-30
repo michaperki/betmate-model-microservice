@@ -66,14 +66,15 @@ def get_logger(service_name="microservice"):
         # Remove existing handlers
         _logger.handlers.clear()
         
-        # Create formatter with fields that match backend format
+        # Create formatter with fields that match backend format and ISO8601 timestamp
         formatter = jsonlogger.JsonFormatter(
             fmt='%(asctime)s %(levelname)s %(name)s %(message)s',
             rename_fields={
                 'asctime': 'ts',
-                'levelname': 'level', 
+                'levelname': 'level',
                 'name': 'service'
-            }
+            },
+            datefmt='%Y-%m-%dT%H:%M:%S.000Z'
         )
         
         # Always add console handler
@@ -109,10 +110,10 @@ def log_event(level: str, event: str, trace_id: str = None, **context):
     logger = get_logger()
     
     # Create a structured log entry similar to backend format
+    # Note: We don't need to manually set the timestamp as the formatter handles it
     log_data = {
         'event': event,
-        'env': os.environ.get('NODE_ENV', 'development'),
-        'ts': datetime.now().isoformat()
+        'env': os.environ.get('NODE_ENV', 'development')
     }
     
     if trace_id:

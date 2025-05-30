@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 from chess import Board
 from chess.engine import SimpleEngine, Limit
 from numpy import load, ndarray
@@ -8,14 +8,21 @@ from os import environ
 from sys import platform
 import atexit
 import os
+import time
+import random
+from functools import lru_cache
 from logger import log_event
 
 # Config
 TIME_LIMIT = float(environ.get('TIME_LIMIT', 0.2))  # Increased from 0.01 to give Stockfish enough time to respond
 HASH_SIZE = int(environ.get('HASH_SIZE', 128))  # Reduced from 256 to lower memory usage
+CACHE_EXPIRY_TIME = int(environ.get('CACHE_EXPIRY_TIME', 300))  # Cache expiry in seconds (5 min default)
 
 # Global engine instance (Singleton pattern)
 _ENGINE: Optional[SimpleEngine] = None
+
+# Result cache to avoid redundant WDL computations
+_CACHE = {}
 
 def get_engine():
     """Return or create a Stockfish engine instance (singleton pattern)."""
@@ -78,13 +85,34 @@ except Exception as e:
     df = np.full(shape, 0.34)
 
 
-def get_win_bin(board: Board, engine=None) -> int:
+def clean_cache():
+    """Remove expired items from the cache."""
+    global _CACHE
+    current_time = time.time()
+
+    # Create a list of keys to remove to avoid modifying dict during iteration
+    keys_to_remove = []
+    for key, (timestamp, _) in _CACHE.items():
+        if current_time - timestamp > CACHE_EXPIRY_TIME:
+            keys_to_remove.append(key)
+
+    # Remove expired items
+    for key in keys_to_remove:
+        del _CACHE[key]
+
+    if keys_to_remove:
+        log_event('debug', 'cache_cleaned', removed_items=len(keys_to_remove), cache_size=len(_CACHE))
+
+
+# Using functools.lru_cache for the CPU-intensive part of the computation
+@lru_cache(maxsize=128)
+def _compute_win_bin_cached(fen: str) -> int:
     """
-    Convert `board` state to 'bin' corresponding to 'white vs. black' favorability.
-    Uses the provided engine instance or creates a temporary one if None.
+    Core computation logic for win_bin, cached by FEN string.
+    This function is separated to enable effective caching.
     """
-    if engine is None:
-        engine = get_engine()
+    board = Board(fen)
+    engine = get_engine()
 
     try:
         # Evaluate board with enough time for reliable analysis
@@ -93,25 +121,24 @@ def get_win_bin(board: Board, engine=None) -> int:
             try:
                 info = engine.analyse(board, Limit(time=TIME_LIMIT))
                 score = info['score'].white().score(mate_score=1000)
-                log_event('debug', 'stockfish_analysis_success', score=score)
+                # No debug log here to reduce noise - will log in the wrapper function
             except asyncio.exceptions.TimeoutError as te:
-                log_event('warning', 'stockfish_timeout', error=str(te))
+                log_event('warning', 'stockfish_timeout', error=str(te), fen=fen)
                 # Use neutral evaluation on timeout
                 score = 0
             except Exception as e:
-                log_event('warning', 'stockfish_analysis_failed', error=str(e))
+                log_event('warning', 'stockfish_analysis_failed', error=str(e), fen=fen)
                 # Default to neutral evaluation if analysis fails
                 score = 0
         except Exception as outer_e:
-            log_event('error', 'stockfish_outer_exception', error=str(outer_e))
+            log_event('error', 'stockfish_outer_exception', error=str(outer_e), fen=fen)
             score = 0
     except Exception as e:
-        log_event('error', 'engine_handling_error', error=str(e))
+        log_event('error', 'engine_handling_error', error=str(e), fen=fen)
         score = 0
 
     # Logistic transform on evaluation
     pwin = 1 / (1 + pow(10, -score / 400))
-    log_event('debug', 'win_probability_calculated', pwin=pwin)
 
     if pwin < 0.10:
         return 0
@@ -121,35 +148,140 @@ def get_win_bin(board: Board, engine=None) -> int:
         return 2
     elif pwin >= 0.60 and pwin < 0.90:
         return 3
-    elif pwin >= 0.90:
+    else:  # pwin >= 0.90
         return 4
 
 
-def model(board: Board, white_time: int, black_time: int) -> Dict[str, float]:
-    """Get win/draw/loss probabilities based on `board` state and player times."""
-    log_event('debug', 'model_calculation_start', fen=board.fen(), white_time=white_time, black_time=black_time)
+def get_win_bin(board: Board, engine=None) -> int:
+    """
+    Convert `board` state to 'bin' corresponding to 'white vs. black' favorability.
+    Uses the provided engine instance or creates a temporary one if None.
+
+    This function implements a two-level caching strategy:
+    1. First checks the in-memory dict cache with timestamps for recently computed positions
+    2. Then uses the LRU cache for frequently computed positions (even if not recent)
+    """
+    # Clean expired entries occasionally (1% chance each call, to avoid overhead)
+    if random.random() < 0.01:
+        clean_cache()
+
+    # Convert board to FEN for cache key
+    fen = board.fen()
+    current_time = time.time()
+
+    # Check if we have a cached result
+    if fen in _CACHE:
+        timestamp, win_bin = _CACHE[fen]
+        # Only use cache if not expired
+        if current_time - timestamp <= CACHE_EXPIRY_TIME:
+            log_event('debug', 'win_bin_cache_hit', fen=fen)
+            return win_bin
+
+    # Not in recent cache, try LRU cache or compute new value
+    win_bin = _compute_win_bin_cached(fen)
+
+    # Store in timestamp cache
+    _CACHE[fen] = (current_time, win_bin)
+
+    # Only log for new computations, but sample to reduce noise
+    if random.random() < 0.1:  # Only log 10% of calculations to reduce volume
+        log_event('debug', 'win_probability_calculated', pwin_bin=win_bin, fen=fen)
+
+    return win_bin
+
+
+def get_result_key(fen: str, white_time: int, black_time: int) -> str:
+    """Create a cache key for the results cache."""
+    return f"{fen}|{white_time}|{black_time}"
+
+
+# Cache for the final WDL results
+_RESULT_CACHE = {}
+
+
+def model(board: Board, white_time: int, black_time: int, game_id: str = None, move_number: int = None) -> Dict[str, float]:
+    """
+    Get win/draw/loss probabilities based on `board` state and player times.
+
+    Args:
+        board: Chess board position
+        white_time: White player's remaining time in seconds
+        black_time: Black player's remaining time in seconds
+        game_id: Optional game ID for logging correlation
+        move_number: Optional move number for logging correlation
+
+    Returns:
+        Dictionary with white_win, draw, and black_win probabilities
+    """
+    fen = board.fen()
+    is_whites_turn = " w " in fen
+    player_color = "white" if is_whites_turn else "black"
+
+    # Create and log correlation ID for this calculation
+    log_context = {
+        'fen': fen,
+        'white_time': white_time,
+        'black_time': black_time,
+        'player_to_move': player_color
+    }
+
+    # Add optional game tracking info if provided
+    if game_id:
+        log_context['game_id'] = game_id
+    if move_number is not None:
+        log_context['move_number'] = move_number
+
+    # Check results cache first
+    cache_key = get_result_key(fen, white_time, black_time)
+    current_time = time.time()
+
+    if cache_key in _RESULT_CACHE:
+        timestamp, result = _RESULT_CACHE[cache_key]
+        if current_time - timestamp <= CACHE_EXPIRY_TIME:
+            # Sample cache hit logs to reduce noise
+            if random.random() < 0.05:  # Only log 5% of cache hits
+                log_event('debug', 'model_calculation_cache_hit', **log_context)
+            return result
+
+    # Use 'debug' for start but sample to reduce log volume
+    if random.random() < 0.2:  # Log 20% of calculation starts
+        log_event('debug', 'model_calculation_start', **log_context)
+
+    # Ensure times are within range of model
+    white_time_adjusted = min(180, max(1, white_time))
+    black_time_adjusted = min(180, max(1, black_time))
+
+    if white_time_adjusted != white_time or black_time_adjusted != black_time:
+        log_event('debug', 'time_adjusted',
+                 original_white=white_time,
+                 adjusted_white=white_time_adjusted,
+                 original_black=black_time,
+                 adjusted_black=black_time_adjusted)
 
     # Use a single engine instance for the entire model calculation
     try:
         win_bin: int = get_win_bin(board, get_engine())
     except Exception as e:
-        log_event('error', 'engine_analysis_error', error=str(e))
+        log_event('error', 'engine_analysis_error', error=str(e), **log_context)
         # Default to balanced position (bin 2) if everything fails
         win_bin = 2
 
-    log_event('debug', 'win_bin_calculated', win_bin=win_bin)
-
-    # Ensure times are within range of model
-    white_time = min(180, max(1, white_time))
-    black_time = min(180, max(1, black_time))
-
+    # Calculate result from lookup table using adjusted times
     result = {
-        'white_win': float(wwf[white_time, black_time, win_bin]),
-        'draw': float(df[white_time, black_time, win_bin]),
-        'black_win': float(bwf[white_time, black_time, win_bin])
+        'white_win': float(wwf[white_time_adjusted, black_time_adjusted, win_bin]),
+        'draw': float(df[white_time_adjusted, black_time_adjusted, win_bin]),
+        'black_win': float(bwf[white_time_adjusted, black_time_adjusted, win_bin])
     }
 
-    log_event('info', 'model_calculation_complete', probabilities=result)
+    # Store in cache
+    _RESULT_CACHE[cache_key] = (current_time, result)
+
+    # Create a summary log with all relevant information in one place
+    log_event('info', 'move_analysis_complete',
+             win_bin=win_bin,
+             probabilities=result,
+             **log_context)
+
     return result
 
 
@@ -163,36 +295,73 @@ def wdl_route(event, context=None):
     - `white_time` is not provided or can't be cast to int
     - `black_time` is not provided or can't be cast to int
 
+    Optional parameters:
+    - `game_id`: ID of the game for correlation in logs
+    - `move_number`: Current move number for correlation in logs
+
     Otherwise, will return result from `model()` with 200 status.
     """
-    log_event('debug', 'wdl_request_received')
+    # Get trace ID from request if available
+    trace_id = None
+    if event.get('headers'):
+        trace_id = event['headers'].get('x-trace-id')
+
+    # Log with trace ID if available
+    log_context = {}
+    if trace_id:
+        log_context['trace_id'] = trace_id
+
+    log_event('debug', 'wdl_request_received', **log_context)
 
     data = event['queryStringParameters']
     try:
+        # Extract game_id and move_number if provided
+        game_id = data.get('game_id')
+        move_number = None
+        if 'move_number' in data:
+            try:
+                move_number = int(data.get('move_number'))
+            except (ValueError, TypeError):
+                log_event('warning', 'invalid_move_number_ignored', **log_context)
+
+        if game_id:
+            log_context['game_id'] = game_id
+        if move_number is not None:
+            log_context['move_number'] = move_number
+
         # Handle empty FEN (this was causing issues)
         fen = data.get('fen')
         if fen is None or fen.strip() == "":
             # Default to starting position if FEN is empty
-            log_event('warning', 'empty_fen_using_default')
+            log_event('warning', 'empty_fen_using_default', **log_context)
             fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
         board = Board(fen)
+        log_context['fen'] = fen
+
+        # Record current player from FEN
+        player_color = "white" if " w " in fen else "black"
+        log_context['player_to_move'] = player_color
 
         # Handle missing time parameters
         try:
             white_time: int = int(data.get('white_time', 60))
+            log_context['white_time'] = white_time
         except (ValueError, TypeError):
-            log_event('warning', 'invalid_white_time_using_default')
+            log_event('warning', 'invalid_white_time_using_default', **log_context)
             white_time = 60
+            log_context['white_time'] = white_time
 
         try:
             black_time: int = int(data.get('black_time', 60))
+            log_context['black_time'] = black_time
         except (ValueError, TypeError):
-            log_event('warning', 'invalid_black_time_using_default')
+            log_event('warning', 'invalid_black_time_using_default', **log_context)
             black_time = 60
+            log_context['black_time'] = black_time
 
     except Exception as e:
-        log_event('error', 'request_parsing_error', error=str(e))
+        log_event('error', 'request_parsing_error', error=str(e), **log_context)
         return {
             'statusCode': 400,
             'body': json.dumps({
@@ -202,17 +371,23 @@ def wdl_route(event, context=None):
         }
 
     try:
-        probabilities = model(board, white_time, black_time)
+        # Pass game_id and move_number to model for correlation
+        probabilities = model(board, white_time, black_time, game_id, move_number)
 
         return {
             'statusCode': 200,
             'body': json.dumps({
                 "message": "SUCCESS",
-                "data": probabilities
+                "data": probabilities,
+                "meta": {
+                    "game_id": game_id,
+                    "move_number": move_number,
+                    "player_to_move": player_color
+                } if game_id or move_number else None
             })
         }
     except Exception as e:
-        log_event('error', 'model_calculation_failed', error=str(e))
+        log_event('error', 'model_calculation_failed', error=str(e), **log_context)
         # Return default probabilities if model fails
         return {
             'statusCode': 200,  # Return 200 to avoid client errors
@@ -223,7 +398,12 @@ def wdl_route(event, context=None):
                     "draw": 0.34,
                     "black_win": 0.33
                 },
-                "error": str(e)
+                "meta": {
+                    "game_id": game_id,
+                    "move_number": move_number,
+                    "player_to_move": player_color,
+                    "error": str(e)
+                } if game_id or move_number else {"error": str(e)}
             })
         }
 

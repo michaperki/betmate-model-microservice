@@ -16,14 +16,15 @@ def setup_logger(service_name: str) -> logging.Logger:
     # Create console handler
     handler = logging.StreamHandler(sys.stdout)
     
-    # Create JSON formatter
+    # Create JSON formatter with ISO8601 timestamp format
     formatter = jsonlogger.JsonFormatter(
         fmt='%(asctime)s %(levelname)s %(name)s %(message)s',
         rename_fields={
             'asctime': 'ts',
-            'levelname': 'level', 
+            'levelname': 'level',
             'name': 'service'
-        }
+        },
+        datefmt='%Y-%m-%dT%H:%M:%S.000Z'
     )
     
     handler.setFormatter(formatter)
