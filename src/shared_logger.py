@@ -3,12 +3,25 @@ import os
 import sys
 from pythonjsonlogger import jsonlogger
 
+LEVEL_MAP = {
+    'DEBUG': logging.DEBUG,
+    'INFO': logging.INFO,
+    'WARNING': logging.WARNING,
+    'WARN': logging.WARNING,
+    'ERROR': logging.ERROR,
+    'CRITICAL': logging.CRITICAL,
+}
+
+def get_configured_level() -> int:
+    level_name = os.environ.get('LOG_LEVEL', 'WARNING').strip().upper()
+    return LEVEL_MAP.get(level_name, logging.WARNING)
+
 def setup_logger(service_name: str) -> logging.Logger:
     """Setup structured JSON logging for microservice components."""
     
     # Create logger
     logger = logging.getLogger(service_name)
-    logger.setLevel(logging.DEBUG if os.environ.get('NODE_ENV') == 'development' else logging.INFO)
+    logger.setLevel(get_configured_level())
     
     # Remove existing handlers to avoid duplicates
     logger.handlers.clear()

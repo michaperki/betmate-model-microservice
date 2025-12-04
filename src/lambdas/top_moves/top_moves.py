@@ -13,9 +13,22 @@ import logging
 import sys
 from pythonjsonlogger import jsonlogger
 
+LEVEL_MAP = {
+    'DEBUG': logging.DEBUG,
+    'INFO': logging.INFO,
+    'WARNING': logging.WARNING,
+    'WARN': logging.WARNING,
+    'ERROR': logging.ERROR,
+    'CRITICAL': logging.CRITICAL,
+}
+
+def get_configured_level() -> int:
+    level_name = environ.get('LOG_LEVEL', 'WARNING').strip().upper()
+    return LEVEL_MAP.get(level_name, logging.WARNING)
+
 # Create a structured logger
 logger = logging.getLogger("top_moves")
-logger.setLevel(logging.DEBUG if environ.get('NODE_ENV') == 'development' else logging.INFO)
+logger.setLevel(get_configured_level())
 handler = logging.StreamHandler(sys.stdout)
 formatter = jsonlogger.JsonFormatter(
     fmt='%(asctime)s %(levelname)s %(name)s %(message)s',

@@ -11,6 +11,19 @@ _logger = None
 _axiom_enabled = False
 _axiom_client = None
 
+LEVEL_MAP = {
+    'DEBUG': logging.DEBUG,
+    'INFO': logging.INFO,
+    'WARNING': logging.WARNING,
+    'WARN': logging.WARNING,
+    'ERROR': logging.ERROR,
+    'CRITICAL': logging.CRITICAL,
+}
+
+def get_configured_level() -> int:
+    level_name = os.environ.get('LOG_LEVEL', 'WARNING').strip().upper()
+    return LEVEL_MAP.get(level_name, logging.WARNING)
+
 class AxiomHandler(logging.Handler):
     """Custom logging handler that sends logs to Axiom"""
     
@@ -61,7 +74,7 @@ def get_logger(service_name="microservice"):
     
     if _logger is None:
         _logger = logging.getLogger(service_name)
-        _logger.setLevel(logging.DEBUG if os.environ.get('NODE_ENV') == 'development' else logging.INFO)
+        _logger.setLevel(get_configured_level())
         
         # Remove existing handlers
         _logger.handlers.clear()
@@ -121,10 +134,6 @@ def log_event(level: str, event: str, trace_id: str = None, **context):
         
     # Add all context data
     log_data.update(context)
-    
-    # Skip debug logs in production
-    if level == 'debug' and os.environ.get('NODE_ENV') == 'production':
-        return
     
     # Use the appropriate log level method
     getattr(logger, level.lower())(None, extra=log_data)

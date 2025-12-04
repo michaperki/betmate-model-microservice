@@ -36,6 +36,10 @@ To build: `docker-compose build`
 
 To run: `docker compose up`
 
+### Logging noise control
+
+The Python services now default to `LOG_LEVEL=WARNING` to keep local consoles quiet. When you need extra detail, set `LOG_LEVEL` before running Docker (e.g., `LOG_LEVEL=INFO docker compose up` or `$env:LOG_LEVEL="DEBUG"` in PowerShell) and restart the containers.
+
 ### Deployment
 
 To put these functions into production, you need to:

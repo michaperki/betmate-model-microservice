@@ -25,7 +25,7 @@ services:
       - HASH_SIZE=128
       - STOCKFISH_PATH=/var/task/assets/stockfish_linux
     entrypoint: []
-    command: ["python", "wdl.py"]
+    command: ["python3", "wdl.py"]
 
   top-moves-container:
     image: top-moves-image
@@ -38,7 +38,7 @@ services:
       - HASH_SIZE=128
       - STOCKFISH_PATH=/var/task/assets/stockfish_linux
     entrypoint: []
-    command: ["python", "top_moves.py"]
+    command: ["python3", "top_moves.py"]
 
   move-analysis-container:
     image: move-analysis-image
@@ -53,7 +53,8 @@ services:
       - HASH_SIZE=64
       - STOCKFISH_PATH=/var/task/assets/stockfish_linux
     entrypoint: []
-    command: ["python", "move_analysis.py"]
+    # Explicitly use python3 to avoid running under python2 in some environments
+    command: ["python3", "move_analysis.py"]
     deploy:
       resources:
         limits:
