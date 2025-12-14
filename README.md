@@ -36,6 +36,24 @@ To build: `docker-compose build`
 
 To run: `docker compose up`
 
+### LC0 (Leela) integration for WDL
+
+The WDL Lambda supports blending Leela Chess Zero (LC0) WDL with time-indexed tables to produce time-aware odds.
+
+- Select provider:
+  - `ENGINE_PROVIDER=lc0` to enable LC0-based WDL; default is `stockfish`.
+- LC0 config:
+  - `LILA_ENGINE_PATH`: path to lc0 binary inside the container (e.g., `/var/task/assets/lc0`).
+  - `LILA_WEIGHTS_PATH`: path to LC0 network `weights.pb`/`weights.pb.gz`.
+  - `LILA_BACKEND`: `blas` for CPU, `cuda` or `cuda-fp16` for GPU builds.
+  - `LILA_DEPTH`: optional fixed depth; if unset, uses `TIME_LIMIT` seconds per position.
+- Blending controls (engine WDL vs time tables):
+  - `ENABLE_ENGINE_WDL_BLEND=true|false` (default true)
+  - `ENGINE_WDL_BASE_WEIGHT` (default 0.6), `ENGINE_WDL_MAX_WEIGHT` (default 0.9)
+
+Notes:
+- LC0 binaries and nets are large. For production, consider a separate LC0 microservice with GPU or precompute calibrations offline.
+
 ### Logging noise control
 
 The Python services now default to `LOG_LEVEL=WARNING` to keep local consoles quiet. When you need extra detail, set `LOG_LEVEL` before running Docker (e.g., `LOG_LEVEL=INFO docker compose up` or `$env:LOG_LEVEL="DEBUG"` in PowerShell) and restart the containers.
