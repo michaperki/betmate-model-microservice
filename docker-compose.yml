@@ -18,12 +18,20 @@ services:
     ports:
       - "8081:8080"
     volumes:
-      - ./assets:/app/assets
+      - ./assets:/var/task/assets
     environment:
       - LOCAL_DEV=true
-      - TIME_LIMIT=1.0
+      - TIME_LIMIT=0.2
       - HASH_SIZE=128
       - STOCKFISH_PATH=/var/task/assets/stockfish_linux
+      # Enable LC0 provider for local runs (requires lc0 + weights in microservice/assets)
+      - ENGINE_PROVIDER=${ENGINE_PROVIDER:-stockfish}
+      - LILA_ENGINE_PATH=${LILA_ENGINE_PATH:-/var/task/assets/lc0}
+      - LILA_WEIGHTS_PATH=${LILA_WEIGHTS_PATH:-/var/task/assets/weights.pb}
+      - LILA_BACKEND=${LILA_BACKEND:-blas}
+      - ENABLE_ENGINE_WDL_BLEND=${ENABLE_ENGINE_WDL_BLEND:-true}
+      - ENGINE_WDL_BASE_WEIGHT=${ENGINE_WDL_BASE_WEIGHT:-0.6}
+      - ENGINE_WDL_MAX_WEIGHT=${ENGINE_WDL_MAX_WEIGHT:-0.9}
     entrypoint: []
     command: ["python3", "wdl.py"]
 
@@ -46,7 +54,7 @@ services:
     ports:
       - "8083:8080"
     volumes:
-      - ./assets:/app/assets
+      - ./assets:/var/task/assets
     environment:
       - LOCAL_DEV=true
       - DEPTH=6
@@ -61,4 +69,3 @@ services:
           memory: 2g
         reservations:
           memory: 1g
-

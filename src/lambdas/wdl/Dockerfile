@@ -10,16 +10,14 @@ RUN pip install --no-cache-dir -r requirements.txt --target .
 COPY wdl.py .
 COPY logger.py .
 
-# Copy assets
-COPY assets/stockfish_linux assets/stockfish_linux
-COPY assets/black_win_fraction.npy assets/black_win_fraction.npy
-COPY assets/white_win_fraction.npy assets/white_win_fraction.npy
-COPY assets/draw_fraction.npy assets/draw_fraction.npy
+# Copy all assets (tables, engines, nets). Place lc0 and weights.pb(.gz) here to enable LC0.
+COPY assets/ assets/
 
-# Ensure binary is executable
-RUN chmod +x assets/stockfish_linux
+# Ensure binaries are executable when present
+RUN chmod +x assets/stockfish_linux || true \
+ && chmod +x assets/lc0 || true
 
-# Set environment variable for Stockfish path
+# Default engine envs (can be overridden via docker-compose)
 ENV STOCKFISH_PATH=/var/task/assets/stockfish_linux
 
 CMD ["wdl.handler"]

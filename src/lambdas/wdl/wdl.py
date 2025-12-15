@@ -14,12 +14,43 @@ from functools import lru_cache
 from logger import log_event
 
 # Config
-TIME_LIMIT = float(environ.get('TIME_LIMIT', 0.2))  # Increased from 0.01 to give Stockfish enough time to respond
+TIME_LIMIT = float(environ.get('TIME_LIMIT', 0.2))  # Increased from 0.01 to give engine enough time
 HASH_SIZE = int(environ.get('HASH_SIZE', 128))  # Reduced from 256 to lower memory usage
 CACHE_EXPIRY_TIME = int(environ.get('CACHE_EXPIRY_TIME', 300))  # Cache expiry in seconds (5 min default)
 
+"""Engine provider selection and LC0 (Leela) configuration.
+
+Supported providers:
+- 'stockfish' (default)
+- 'lc0' (requires lc0 binary + weights)
+"""
+ENGINE_PROVIDER = environ.get('ENGINE_PROVIDER', 'stockfish').lower()
+
+# Optional LC0 configuration (only used if ENGINE_PROVIDER=lc0)
+LILA_ENGINE_PATH = environ.get('LILA_ENGINE_PATH')  # e.g., '/var/task/assets/lc0'
+LILA_WEIGHTS_PATH = environ.get('LILA_WEIGHTS_PATH')  # e.g., '/var/task/assets/weights.pb.gz'
+LILA_BACKEND = environ.get('LILA_BACKEND')  # e.g., 'blas', 'cuda', 'cuda-fp16'
+LILA_DEPTH = environ.get('LILA_DEPTH')  # optional depth; if unset, uses TIME_LIMIT
+
+# Blend controls (engine WDL vs time-table). Only applies if engine WDL available.
+ENABLE_ENGINE_WDL_BLEND = environ.get('ENABLE_ENGINE_WDL_BLEND', 'true').lower() in ('1','true','yes','on')
+ENGINE_WDL_BASE_WEIGHT = float(environ.get('ENGINE_WDL_BASE_WEIGHT', '0.6'))  # baseline engine weight
+ENGINE_WDL_MAX_WEIGHT = float(environ.get('ENGINE_WDL_MAX_WEIGHT', '0.9'))  # cap on engine weight
+
 # Global engine instance (Singleton pattern)
 _ENGINE: Optional[SimpleEngine] = None
+
+# Log engine mode once at import for visibility
+try:
+    log_event(
+        'info',
+        'engine_mode',
+        provider=ENGINE_PROVIDER,
+        lc0_configured=bool(LILA_ENGINE_PATH and os.path.exists(LILA_ENGINE_PATH)),
+        blend_enabled=ENABLE_ENGINE_WDL_BLEND,
+    )
+except Exception:
+    pass
 
 # Result cache to avoid redundant WDL computations
 _CACHE = {}
@@ -112,6 +143,23 @@ def _compute_win_bin_cached(fen: str) -> int:
     This function is separated to enable effective caching.
     """
     board = Board(fen)
+    # If LC0 is enabled, derive bin from LC0 p(win)
+    if ENGINE_PROVIDER == 'lc0' and LILA_ENGINE_PATH:
+        try:
+            pwin, _ = _lc0_analyse(board)
+        except Exception:
+            pwin = None
+        if pwin is not None:
+            if pwin < 0.10:
+                return 0
+            elif pwin < 0.40:
+                return 1
+            elif pwin < 0.60:
+                return 2
+            elif pwin < 0.90:
+                return 3
+            else:
+                return 4
     engine = get_engine()
 
     try:
@@ -199,6 +247,172 @@ def get_result_key(fen: str, white_time: int, black_time: int) -> str:
 _RESULT_CACHE = {}
 
 
+def _normalize_probs(w: float, d: float, b: float) -> Tuple[float, float, float]:
+    s = max(1e-12, float(w) + float(d) + float(b))
+    return float(w) / s, float(d) / s, float(b) / s
+
+
+def _blend_with_engine_wdl(table: Dict[str, float], engine_wdl: Dict[str, float], pwin: float,
+                           white_time: int, black_time: int, fen: str) -> Dict[str, float]:
+    try:
+        ew, ed, eb = _normalize_probs(engine_wdl.get('white_win', 0.0), engine_wdl.get('draw', 0.0), engine_wdl.get('black_win', 0.0))
+        tw, td, tb = _normalize_probs(table.get('white_win', 0.0), table.get('draw', 0.0), table.get('black_win', 0.0))
+
+        closeness = max(0.0, 1.0 - 2.0 * abs(float(pwin) - 0.5))  # [0,1]
+        time_factor = max(0.0, min(1.0, (white_time + black_time) / 360.0))
+
+        base = max(0.0, min(1.0, ENGINE_WDL_BASE_WEIGHT))
+        cap = max(0.0, min(1.0, ENGINE_WDL_MAX_WEIGHT))
+        engine_weight = min(cap, base * (0.5 + 0.5 * closeness) * time_factor)
+        table_weight = 1.0 - engine_weight
+
+        bw = engine_weight * ew + table_weight * tw
+        bd = engine_weight * ed + table_weight * td
+        bb = engine_weight * eb + table_weight * tb
+        bw, bd, bb = _normalize_probs(bw, bd, bb)
+        if random.random() < 0.05:
+            log_event('debug', 'lc0_blend', fen=fen, engine_weight=engine_weight,
+                      engine_wdl={'w': ew, 'd': ed, 'b': eb},
+                      table={'w': tw, 'd': td, 'b': tb}, blended={'w': bw, 'd': bd, 'b': bb})
+        return {'white_win': bw, 'draw': bd, 'black_win': bb}
+    except Exception as e:
+        if random.random() < 0.01:
+            log_event('warning', 'lc0_blend_failed', error=str(e))
+        return table
+
+
+def _lc0_analyse(board: Board) -> Tuple[Optional[float], Optional[Dict[str, float]]]:
+    """Run a short lc0 analysis and return (pwin_white, wdl_probs_white_pov) or (None, None).
+
+    Uses env: LILA_ENGINE_PATH, LILA_WEIGHTS_PATH, LILA_BACKEND, LILA_DEPTH, TIME_LIMIT
+    """
+    try:
+        import subprocess, re
+    except Exception:
+        return None, None
+
+    if not LILA_ENGINE_PATH or not os.path.exists(LILA_ENGINE_PATH):
+        return None, None
+
+    cmd = [LILA_ENGINE_PATH]
+    if LILA_WEIGHTS_PATH:
+        cmd.append(f"--weights={LILA_WEIGHTS_PATH}")
+    if LILA_BACKEND:
+        cmd.append(f"--backend={LILA_BACKEND}")
+    cmd.extend(["--show-wdl", "--preload"])  # faster init + explicit WDL
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True,
+            bufsize=1,
+        )
+    except Exception:
+        return None, None
+
+    def send(s: str):
+        try:
+            proc.stdin.write(s + "\n")
+            proc.stdin.flush()
+        except Exception:
+            pass
+
+    # Handshake
+    import time as _t
+    send("uci")
+    t0 = _t.time()
+    while True:
+        line = proc.stdout.readline()
+        if not line:
+            if proc.poll() is not None or _t.time() - t0 > 10:
+                proc.kill()
+                return None, None
+            continue
+        if "uciok" in line:
+            break
+        if _t.time() - t0 > 10:
+            proc.kill()
+            return None, None
+
+    # Enable WDL and ready
+    send("setoption name UCI_ShowWDL value true")
+    send("isready")
+    t0 = _t.time()
+    while True:
+        line = proc.stdout.readline()
+        if not line:
+            if proc.poll() is not None or _t.time() - t0 > 10:
+                proc.kill()
+                return None, None
+            continue
+        if "readyok" in line:
+            break
+        if _t.time() - t0 > 10:
+            proc.kill()
+            return None, None
+
+    # Position + go
+    send(f"position fen {board.fen()}")
+    if LILA_DEPTH:
+        try:
+            d = int(LILA_DEPTH)
+            send(f"go depth {d}")
+        except Exception:
+            ms = int(max(10, TIME_LIMIT * 1000))
+            send(f"go movetime {ms}")
+    else:
+        ms = int(max(10, TIME_LIMIT * 1000))
+        send(f"go movetime {ms}")
+
+    # Parse wdl
+    wdl_re = re.compile(r"(?i)wdl\s*[:=]?\s*([0-9]+)[ ,/]+([0-9]+)[ ,/]+([0-9]+)")
+    wins = draws = losses = None
+    t0 = _t.time()
+    while True:
+        line = proc.stdout.readline()
+        if not line:
+            if proc.poll() is not None or _t.time() - t0 > 30:
+                break
+            continue
+        m = wdl_re.search(line)
+        if m:
+            try:
+                wins = int(m.group(1)); draws = int(m.group(2)); losses = int(m.group(3))
+            except Exception:
+                pass
+        if line.startswith("bestmove"):
+            break
+        if _t.time() - t0 > 30:
+            break
+
+    try:
+        send("quit")
+        proc.wait(timeout=2)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+    if not all(isinstance(x, int) for x in (wins, draws, losses)):
+        return None, None
+    s = wins + draws + losses
+    if s <= 0:
+        return None, None
+
+    sm_w, sm_d, sm_l = wins / s, draws / s, losses / s  # side-to-move POV
+    # Convert to White POV
+    if board.turn:  # White to move
+        w_w, w_d, w_l = sm_w, sm_d, sm_l
+    else:
+        w_w, w_d, w_l = sm_l, sm_d, sm_w
+    pwin = max(0.0, min(1.0, float(w_w)))
+    return pwin, {'white_win': w_w, 'draw': w_d, 'black_win': w_l}
+
+
 def model(board: Board, white_time: int, black_time: int, game_id: str = None, move_number: int = None) -> Dict[str, float]:
     """
     Get win/draw/loss probabilities based on `board` state and player times.
@@ -266,12 +480,22 @@ def model(board: Board, white_time: int, black_time: int, game_id: str = None, m
         # Default to balanced position (bin 2) if everything fails
         win_bin = 2
 
-    # Calculate result from lookup table using adjusted times
-    result = {
+    # Calculate base result from lookup table using adjusted times
+    table = {
         'white_win': float(wwf[white_time_adjusted, black_time_adjusted, win_bin]),
         'draw': float(df[white_time_adjusted, black_time_adjusted, win_bin]),
         'black_win': float(bwf[white_time_adjusted, black_time_adjusted, win_bin])
     }
+
+    # If LC0 is enabled, blend LC0 WDL with table odds
+    result = table
+    if ENGINE_PROVIDER == 'lc0' and LILA_ENGINE_PATH and ENABLE_ENGINE_WDL_BLEND:
+        try:
+            pwin, wdl = _lc0_analyse(board)
+        except Exception as e:
+            pwin, wdl = None, None
+        if pwin is not None and isinstance(wdl, dict):
+            result = _blend_with_engine_wdl(table, wdl, pwin, white_time_adjusted, black_time_adjusted, board.fen())
 
     # Store in cache
     _RESULT_CACHE[cache_key] = (current_time, result)
