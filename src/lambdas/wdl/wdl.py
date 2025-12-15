@@ -18,7 +18,12 @@ TIME_LIMIT = float(environ.get('TIME_LIMIT', 0.2))  # Increased from 0.01 to giv
 HASH_SIZE = int(environ.get('HASH_SIZE', 128))  # Reduced from 256 to lower memory usage
 CACHE_EXPIRY_TIME = int(environ.get('CACHE_EXPIRY_TIME', 300))  # Cache expiry in seconds (5 min default)
 
-# Engine provider selection: 'stockfish' | 'lc0'
+"""Engine provider selection and LC0 (Leela) configuration.
+
+Supported providers:
+- 'stockfish' (default)
+- 'lc0' (requires lc0 binary + weights)
+"""
 ENGINE_PROVIDER = environ.get('ENGINE_PROVIDER', 'stockfish').lower()
 
 # Optional LC0 configuration (only used if ENGINE_PROVIDER=lc0)
@@ -34,6 +39,18 @@ ENGINE_WDL_MAX_WEIGHT = float(environ.get('ENGINE_WDL_MAX_WEIGHT', '0.9'))  # ca
 
 # Global engine instance (Singleton pattern)
 _ENGINE: Optional[SimpleEngine] = None
+
+# Log engine mode once at import for visibility
+try:
+    log_event(
+        'info',
+        'engine_mode',
+        provider=ENGINE_PROVIDER,
+        lc0_configured=bool(LILA_ENGINE_PATH and os.path.exists(LILA_ENGINE_PATH)),
+        blend_enabled=ENABLE_ENGINE_WDL_BLEND,
+    )
+except Exception:
+    pass
 
 # Result cache to avoid redundant WDL computations
 _CACHE = {}

@@ -54,6 +54,22 @@ The WDL Lambda supports blending Leela Chess Zero (LC0) WDL with time-indexed ta
 Notes:
 - LC0 binaries and nets are large. For production, consider a separate LC0 microservice with GPU or precompute calibrations offline.
 
+#### Quick start with Docker Compose
+
+To try LC0 locally with blending enabled:
+
+- Place the `lc0` binary in `microservice/assets` and make it executable (`chmod +x microservice/assets/lc0`).
+- Place a network file as `microservice/assets/weights.pb` (or `weights.pb.gz`).
+- Launch the stack with LC0 enabled:
+
+```
+ENGINE_PROVIDER=lc0 \
+LILA_BACKEND=blas \
+docker compose up --build wdl-container
+```
+
+The Compose files pass through `LILA_ENGINE_PATH`, `LILA_WEIGHTS_PATH`, and blending controls with sensible defaults. If `lc0` or weights are missing, the service falls back to Stockfish-only behavior.
+
 ### Logging noise control
 
 The Python services now default to `LOG_LEVEL=WARNING` to keep local consoles quiet. When you need extra detail, set `LOG_LEVEL` before running Docker (e.g., `LOG_LEVEL=INFO docker compose up` or `$env:LOG_LEVEL="DEBUG"` in PowerShell) and restart the containers.
