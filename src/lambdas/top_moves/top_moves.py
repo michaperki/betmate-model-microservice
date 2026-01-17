@@ -57,6 +57,11 @@ DEPTH = int(environ.get('DEPTH', 6))  # Reduced from 10 to lower memory usage
 HASH_SIZE = int(environ.get('HASH_SIZE', 128))  # Reduced from 256 to lower memory usage
 CACHE_EXPIRY_TIME = int(environ.get('CACHE_EXPIRY_TIME', 300))  # Cache expiry in seconds (5 min default)
 
+# Lightweight emoji thresholds (centipawns)
+ONLY_GAP_CP = float(environ.get('ONLY_GAP_CP', '120'))
+BLUNDER_GAP_CP = float(environ.get('BLUNDER_GAP_CP', '350'))
+INITIATIVE_GAP_CP = float(environ.get('INITIATIVE_GAP_CP', '120'))
+
 # Global engine instance (Singleton pattern)
 _ENGINE: Optional[SimpleEngine] = None
 
@@ -230,30 +235,108 @@ def model(board: Board, n: int, game_id: str = None, move_number: int = None) ->
             move_scores.append((board.san(move), float('-inf')))  # Worst score fallback
 
     # Sort moves by score (best first)
-    sorted_moves = sorted(move_scores, key=lambda x: -x[1])[:n]
+    # Keep a richer structure to support emoji heuristics without extra engine calls
+    enriched: List[Dict] = []
+    for san, score in move_scores:
+        try:
+            # Reconstruct move to check tactical flags (SAN is unique in position)
+            mv = board.parse_san(san)
+            gives_check = board.gives_check(mv)
+            is_capture = board.is_capture(mv)
+            is_promo = mv.promotion is not None
+        except Exception:
+            mv = None
+            gives_check = False
+            is_capture = False
+            is_promo = False
+        enriched.append({
+            'san': san,
+            'score': score,
+            'move_obj': mv,
+            'gives_check': gives_check,
+            'is_capture': is_capture,
+            'is_promo': is_promo,
+        })
+
+    # Best and second best across all legal moves (for ONLY/initiative heuristics)
+    all_sorted = sorted(enriched, key=lambda x: -x['score'])
+    if not all_sorted:
+        log_event('warning', 'no_valid_moves_found')
+        return []
+    best_cp = all_sorted[0]['score']
+    second_cp = all_sorted[1]['score'] if len(all_sorted) > 1 else None
+
+    # Select top N for output
+    sorted_moves = all_sorted[:n]
 
     if not sorted_moves:
         log_event('warning', 'no_valid_moves_found', **log_context)
         return []
 
     # Calculate percentiles relative to the returned moves
-    best_score = sorted_moves[0][1]
-    worst_score = sorted_moves[-1][1] if len(sorted_moves) > 1 else best_score
+    best_score = sorted_moves[0]['score']
+    worst_score = sorted_moves[-1]['score'] if len(sorted_moves) > 1 else best_score
     score_range = max(1, best_score - worst_score)  # Avoid division by zero
 
     result = []
-    for i, (move, score) in enumerate(sorted_moves):
+    for i, item in enumerate(sorted_moves):
+        move_san = item['san']
+        score = item['score']
         # Calculate percentile (100 for best move, scaled down for others)
         if score_range == 1:  # All moves have same score
             percentile = 100
         else:
             percentile = max(0, min(100, int(((score - worst_score) / score_range) * 100)))
 
+        # Emoji heuristics — single-pass, no extra engine cost
+        this_cp = score
+        reason_codes: List[str] = []
+        emoji = None
+        confidence = 0.0
+
+        # Blunder if far below best
+        if best_cp is not None and this_cp is not None and (best_cp - this_cp) >= BLUNDER_GAP_CP:
+            emoji = '🤡'
+            confidence = 0.9
+            reason_codes = ['large_eval_drop']
+        # Only move if exactly best and second is far behind
+        elif this_cp is not None and best_cp is not None and abs(this_cp - best_cp) < 1e-6 and second_cp is not None and (best_cp - second_cp) >= ONLY_GAP_CP:
+            emoji = '🛡️'
+            confidence = 0.85
+            reason_codes = ['only_move']
+        # Tactical flags
+        elif item.get('gives_check'):
+            emoji = '⚡'
+            confidence = 0.8
+            reason_codes = ['check']
+        elif item.get('is_promo'):
+            emoji = '🔥'
+            confidence = 0.85
+            reason_codes = ['promotion']
+        elif item.get('is_capture'):
+            emoji = '💥'
+            confidence = 0.7
+            reason_codes = ['capture']
+        # Initiative if best by margin
+        elif this_cp is not None and best_cp is not None and abs(this_cp - best_cp) < 1e-6 and second_cp is not None and (best_cp - second_cp) >= INITIATIVE_GAP_CP:
+            emoji = '🚀'
+            confidence = 0.75
+            reason_codes = ['initiative']
+        else:
+            emoji = '🍃'
+            confidence = 0.55
+            reason_codes = ['quiet']
+
         result.append({
-            "move": move,
+            "move": move_san,
             "score": score,
             "percentile": percentile,
-            "is_best_move": (i == 0)
+            "is_best_move": (i == 0),
+            "emoji": emoji,
+            "emoji_confidence": confidence,
+            "reason_codes": reason_codes,
+            "only_gap_cp": float(best_cp - second_cp) if (best_cp is not None and second_cp is not None) else None,
+            "gap_to_best_cp": float(best_cp - this_cp) if (best_cp is not None and this_cp is not None) else None,
         })
 
     # Store in cache
@@ -364,7 +447,7 @@ def top_moves_route(event, context=None):
 
     # Return format based on enhanced parameter
     if enhanced:
-        # Return enhanced format with analysis data
+        # Return enhanced format with analysis + emoji data
         response_data = top_moves_data
         log_event('debug', 'enhanced_response_format', move_count=len(top_moves_data), **log_context)
     else:

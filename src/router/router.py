@@ -7,6 +7,13 @@ wdl_lock = Lock()
 top_moves_lock = Lock()
 move_analysis_lock = Lock()
 
+# Simple in-process counters for observability in dev
+STATS = {
+    "wdl": {"ok": 0, "error": 0, "exception": 0},
+    "top-moves": {"ok": 0, "error": 0, "exception": 0},
+    "move-analysis": {"ok": 0, "error": 0, "exception": 0},
+}
+
 ROUTE_URLS = {
     "wdl": "http://wdl-container:8080/predict",
     "top-moves": "http://top-moves-container:8080/predict",
@@ -23,9 +30,13 @@ def create_handler(url: str, lock: Lock):
             try:
                 async with session.post(url, data=data, headers=headers) as resp:
                     text = await resp.text()
-                    # print("Upstream raw response:", text)  # 👈 Add this line
+                    # print("Upstream raw response:", text)
                     if resp.status != 200:
-                        print(f"Upstream error: {url} returned status {resp.status}: {text}")
+                        print(f"[router] Upstream error: {url} status={resp.status} body={text[:200]}...")
+                        # increment counters
+                        for key, route_url in ROUTE_URLS.items():
+                            if route_url == url:
+                                STATS[key]["error"] += 1
                         # Still return 200 to the client with an error message
                         result = {
                             'statusCode': 404,
@@ -44,13 +55,20 @@ def create_handler(url: str, lock: Lock):
                     result = json.loads(text)
                     body = result.get('body', text)
                     status = result.get('statusCode', 200)
+                    # increment ok counter
+                    for key, route_url in ROUTE_URLS.items():
+                        if route_url == url:
+                            STATS[key]["ok"] += 1
                     return web.Response(
                         body=body,
                         status=status,
                         content_type='application/json'
                     )
             except Exception as e:
-                print(f"Router exception for {url}: {e}")
+                print(f"[router] Exception for {url}: {e}")
+                for key, route_url in ROUTE_URLS.items():
+                    if route_url == url:
+                        STATS[key]["exception"] += 1
                 # Still return 200 to the client with an error message
                 result = {
                     'body': json.dumps({
@@ -73,9 +91,10 @@ def main():
         web.get('/dev/wdl', create_handler(ROUTE_URLS["wdl"], wdl_lock)),
         web.get('/dev/top-moves', create_handler(ROUTE_URLS["top-moves"], top_moves_lock)),
         web.get('/dev/move-analysis', create_handler(ROUTE_URLS["move-analysis"], move_analysis_lock)),
+        web.get('/dev/health', lambda _req: web.json_response({"status": "ok"})),
+        web.get('/dev/stats', lambda _req: web.json_response(STATS)),
     ])
     web.run_app(app, port=8000)
 
 if __name__ == '__main__':
     main()
-
