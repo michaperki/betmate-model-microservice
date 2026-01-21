@@ -37,18 +37,16 @@ def create_handler(url: str, lock: Lock):
                         for key, route_url in ROUTE_URLS.items():
                             if route_url == url:
                                 STATS[key]["error"] += 1
-                        # Still return 200 to the client with an error message
-                        result = {
-                            'statusCode': 404,
-                            'body': json.dumps({
-                                "message": "Analysis service unavailable",
-                                "data": None,
-                                "error": f"Upstream error: {text}"
-                            })
-                        }
+                        # Return non-200 to surface failures while keeping a structured body
+                        body = json.dumps({
+                            "message": "Analysis service unavailable",
+                            "data": None,
+                            "error": f"Upstream error: {text}",
+                            "upstream_status": resp.status
+                        })
                         return web.Response(
-                            body=result['body'],
-                            status=200,  # Return 200 to avoid client errors
+                            body=body,
+                            status=502,
                             content_type='application/json'
                         )
 
@@ -69,17 +67,15 @@ def create_handler(url: str, lock: Lock):
                 for key, route_url in ROUTE_URLS.items():
                     if route_url == url:
                         STATS[key]["exception"] += 1
-                # Still return 200 to the client with an error message
-                result = {
-                    'body': json.dumps({
-                        "message": "Analysis service unavailable",
-                        "data": None,
-                        "error": f"Router exception: {e}"
-                    })
-                }
+                # Return non-200 with structured error
+                body = json.dumps({
+                    "message": "Analysis service unavailable",
+                    "data": None,
+                    "error": f"Router exception: {e}"
+                })
                 return web.Response(
-                    body=result['body'],
-                    status=200,  # Return 200 to avoid client errors
+                    body=body,
+                    status=502,
                     content_type='application/json'
                 )
 
