@@ -84,6 +84,14 @@ def create_handler(url: str, lock: Lock):
 def main():
     app = web.Application()
     app.add_routes([
+        # Root routes for local development
+        web.get('/wdl', create_handler(ROUTE_URLS["wdl"], wdl_lock)),
+        web.get('/top-moves', create_handler(ROUTE_URLS["top-moves"], top_moves_lock)),
+        web.get('/move-analysis', create_handler(ROUTE_URLS["move-analysis"], move_analysis_lock)),
+        web.get('/health', lambda _req: web.json_response({"status": "ok"})),
+        web.get('/stats', lambda _req: web.json_response(STATS)),
+
+        # Backwards-compatible stage-prefixed routes
         web.get('/dev/wdl', create_handler(ROUTE_URLS["wdl"], wdl_lock)),
         web.get('/dev/top-moves', create_handler(ROUTE_URLS["top-moves"], top_moves_lock)),
         web.get('/dev/move-analysis', create_handler(ROUTE_URLS["move-analysis"], move_analysis_lock)),
